@@ -460,6 +460,8 @@ async function renderAsync(gamesData, perfData){
   games = games.filter(g => g.GameID);
   perf = perf.filter(p => p.GameID && p.Player);
   games.forEach(g => { g.End_Turn = parseFloat(g.End_Turn) || null; });
+  const gamesById = {};
+  games.forEach(g => { gamesById[g.GameID] = g; });
 
   // Winner detection is NOT derived from Player_Performance's Turn_Died text.
   // That field turns out to be inconsistently written across the sheet's
@@ -487,6 +489,7 @@ async function renderAsync(gamesData, perfData){
     p.turnDiedNum = p.isWin ? null : (parseFloat(turnDiedRaw) || null);
     p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
     p.ArtURL = field(p, pH, 'Art_URL', 'ArtURL') || '';
+    p.gameEndTurn = gamesById[p.GameID]?.End_Turn ?? null;
   });
 
   // Guest players don't count toward any stats: excluding their rows here
@@ -540,16 +543,14 @@ async function renderAsync(gamesData, perfData){
     const rows = perf.filter(p => p.Deck === name);
     const wins = rows.filter(p=>p.isWin).length;
     const gamesPlayed = rows.length;
-    const ramp = rows.map(r => (r.End_Rocks||0) + (r.End_Dorks||0)).filter((x,i)=> rows[i].End_Rocks!==null || rows[i].End_Dorks!==null);
-    const deathTurns = rows.map(r=>r.turnDiedNum).filter(x=>x);
+    const winTurns = rows.filter(r=>r.isWin).map(r=>r.gameEndTurn).filter(x=>x!=null);
     const colorId = rows.find(r=>r.Color_ID)?.Color_ID || '';
     const owner = rows.find(r=>r.Owner)?.Owner || rows[0]?.Player || '';
     const artUrl = rows.find(r=>r.ArtURL)?.ArtURL || '';
     return {
       name, owner, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
-      avgDeathTurn: mean(deathTurns),
-      avgRamp: mean(ramp),
+      avgWinTurn: mean(winTurns),
       colorId, artUrl
     };
   }).filter(d => d.gamesPlayed > 0)
@@ -733,8 +734,8 @@ async function renderAsync(gamesData, perfData){
             </div>
             <div class="tile-bottom">
               <div class="tile-name">${pipsHTML(d.colorId)} &nbsp;${d.name}</div>
-              <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}${d.avgRamp!==null ? ' · avg ramp ' + fmt1(d.avgRamp) : ''}</div>
-              <div class="tile-meta">${d.wins}W · avg out T${fmt1(d.avgDeathTurn)}</div>
+              <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}</div>
+              <div class="tile-meta">${d.wins}W · avg win T${fmt1(d.avgWinTurn)}</div>
             </div>
           </div>
         `;}).join('')}
