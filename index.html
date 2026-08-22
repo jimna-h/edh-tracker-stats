@@ -273,7 +273,13 @@ footer .refresh-btn:hover{ background:var(--panel-hover); }
 
 /* ---------- Active/inactive deck toggle ---------- */
 [data-inactive]{ display:none; }
-.show-inactive [data-inactive]{ display:revert; }
+/* These hide-rules need to out-specificity the unconditional layout rules
+   (.rowlist .r{display:grid}, .deck-tile{display:flex}) or those always win
+   and inactive rows never actually hide, regardless of this rule's order. */
+.rowlist .r[data-inactive]{ display:none; }
+.deck-tile[data-inactive]{ display:none; }
+.rowlist.show-inactive .r[data-inactive]{ display:grid; }
+.show-inactive .deck-tile[data-inactive]{ display:flex; }
 .inactive-toggle{
   display:inline-flex; align-items:center; gap:6px;
   background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
