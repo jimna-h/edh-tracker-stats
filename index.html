@@ -432,6 +432,10 @@ function pipsHTML(colorId){
 // would truncate the attribute early.
 function escUrl(u){ return String(u || '').replace(/"/g, '%22').replace(/'/g, '%27'); }
 
+// Links to the per-entity profile pages.
+function playerUrl(name){ return `player.html?name=${encodeURIComponent(name)}`; }
+function deckUrl(name){ return `deck.html?name=${encodeURIComponent(name)}`; }
+
 function monthLabel(ts){
   const d = new Date(ts.replace(' ','T'));
   if (isNaN(d)) return null;
@@ -648,7 +652,6 @@ async function renderAsync(gamesData, perfData){
         <a href="#trend">Trend</a>
         <a href="#awards">Awards</a>
         <a href="#rivalries">Rivalries</a>
-        <a href="deep-dive.html" style="color:var(--gold-bright);">Deep Dive →</a>
       </div>
     </div>
   </nav>
@@ -683,7 +686,7 @@ async function renderAsync(gamesData, perfData){
           const initial = (p.name || '?').trim().charAt(0).toUpperCase();
           const avatarStyle = pfpUrl ? `background-image:url('${escUrl(pfpUrl)}');background-size:cover;background-position:center;` : '';
           return `
-          <div class="panel leader-card">
+          <a href="${playerUrl(p.name)}" class="panel leader-card" style="text-decoration:none;">
             <div class="life-badge" style="${avatarStyle}">${pfpUrl ? '' : `<div class="n">${initial}</div>`}</div>
             <div class="leader-info">
               <div class="leader-name"><span class="rank-tag">#${i+1}</span>${p.name}</div>
@@ -691,7 +694,7 @@ async function renderAsync(gamesData, perfData){
               <div class="leader-sub">${p.wins}/${p.gamesPlayed} games · avg loss turn ${fmt1(p.avgSurvival)}</div>
               <div class="bar-track"><div class="bar-fill" style="width:${p.winRate*100}%"></div></div>
             </div>
-          </div>
+          </a>
         `;}).join('')}
       </div>
     </div>
@@ -727,7 +730,7 @@ async function renderAsync(gamesData, perfData){
           const hasArt = !!d.artUrl;
           const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
           return `
-          <div class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}">
+          <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;">
             <div class="tile-top">
               <span class="tile-pos">#${i+1}</span>
               <span class="tile-pct">${pct(d.winRate)}</span>
@@ -737,7 +740,7 @@ async function renderAsync(gamesData, perfData){
               <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}</div>
               <div class="tile-meta">${d.wins}W · avg win T${fmt1(d.avgWinTurn)}</div>
             </div>
-          </div>
+          </a>
         `;}).join('')}
       </div>
     </div>
@@ -865,8 +868,7 @@ async function renderAsync(gamesData, perfData){
 
   <footer>
     Reads live from the Game_Summary and Player_Performance tabs · reload the page any time to pull the latest games.
-    <br><a href="deep-dive.html" style="color:var(--gold-bright);font-size:12px;">Deep Dive →</a>
-    &nbsp;&nbsp;<button class="refresh-btn" onclick="location.reload()">Refresh data</button>
+    <br><button class="refresh-btn" onclick="location.reload()">Refresh data</button>
   </footer>
   `;
 
