@@ -621,21 +621,22 @@ async function renderAsync(gamesData, perfData){
   });
   const deckRivalries = Object.values(deckPairMap).filter(r=>r.games>=2).sort((a,b)=> b.games-a.games).slice(0,15);
 
-  // ---------- ramp efficiency: mana sources per turn survived ----------
+  // ---------- mana sources per turn survived: lands are a mana source too,
+  // not just rocks/dorks — total mana development is lands + rocks + dorks ----------
   perf.forEach(p => {
     const turnsAlive = p.isWin ? p.gameEndTurn : p.turnDiedNum;
-    const rampTotal = (p.End_Rocks!=null || p.End_Dorks!=null) ? (p.End_Rocks||0)+(p.End_Dorks||0) : null;
-    p.rampPerTurn = (rampTotal!=null && turnsAlive) ? rampTotal/turnsAlive : null;
+    const manaTotal = (p.End_Lands!=null || p.End_Rocks!=null || p.End_Dorks!=null) ? (p.End_Lands||0)+(p.End_Rocks||0)+(p.End_Dorks||0) : null;
+    p.manaPerTurn = (manaTotal!=null && turnsAlive) ? manaTotal/turnsAlive : null;
   });
   function rampStats(names, rowsFor){
     return names.map(name => {
-      const rows = rowsFor(name).filter(r=>r.rampPerTurn!=null);
-      return { name, games: rows.length, avgRampPerTurn: mean(rows.map(r=>r.rampPerTurn)) };
-    }).filter(x=>x.games>0).sort((a,b)=> b.avgRampPerTurn - a.avgRampPerTurn);
+      const rows = rowsFor(name).filter(r=>r.manaPerTurn!=null);
+      return { name, games: rows.length, avgManaPerTurn: mean(rows.map(r=>r.manaPerTurn)) };
+    }).filter(x=>x.games>0).sort((a,b)=> b.avgManaPerTurn - a.avgManaPerTurn);
   }
   const playerRamp = rampStats(players, name=>perf.filter(p=>p.Player===name));
   const deckRamp = rampStats(decks, name=>perf.filter(p=>p.Deck===name));
-  const maxRamp = Math.max(...playerRamp.map(r=>r.avgRampPerTurn), ...deckRamp.map(r=>r.avgRampPerTurn), 0.01);
+  const maxRamp = Math.max(...playerRamp.map(r=>r.avgManaPerTurn), ...deckRamp.map(r=>r.avgManaPerTurn), 0.01);
 
   // ---------- opening hand lands vs win rate ----------
   // Bucketed across the whole table rather than per deck/player: most decks
@@ -713,7 +714,7 @@ async function renderAsync(gamesData, perfData){
         <a href="#turns">Turns</a>
         <a href="#h2h">Head-to-Head</a>
         <a href="#deckrivalries">Deck Rivalries</a>
-        <a href="#ramp">Ramp</a>
+        <a href="#ramp">Mana</a>
         <a href="#lands">Opening Lands</a>
         <a href="#seatperf">Seat</a>
         <a href="#lengthperf">Game Length</a>
@@ -797,24 +798,24 @@ async function renderAsync(gamesData, perfData){
   <section id="ramp">
     <div class="wrap">
       <div class="section-head">
-        <div><h2>Ramp speed</h2><div class="section-desc">Mana sources (rocks + dorks) per turn survived — how fast each player/deck is actually accelerating, not just how many rocks they end with.</div></div>
-        <div class="idx">04 / RAMP</div>
+        <div><h2>Mana development</h2><div class="section-desc">Total mana sources (lands + rocks + dorks) per turn survived — how fast each player/deck is actually developing mana, lands included.</div></div>
+        <div class="idx">04 / MANA</div>
       </div>
       <div class="grid grid-2">
         <div class="panel" style="padding:20px 20px 8px;">
           <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:14px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By player</h3>
           ${playerRamp.map(r => `<div class="hbar-row">
             <div class="hbar-label">${r.name}</div>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${(r.avgRampPerTurn/maxRamp)*100}%"></div></div>
-            <div class="hbar-val">${fmt1(r.avgRampPerTurn)}/t</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${(r.avgManaPerTurn/maxRamp)*100}%"></div></div>
+            <div class="hbar-val">${fmt1(r.avgManaPerTurn)}/t</div>
           </div>`).join('')}
         </div>
         <div class="panel" style="padding:20px 20px 8px;">
           <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:14px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By deck</h3>
           ${deckRamp.map(r => `<div class="hbar-row">
             <div class="hbar-label">${r.name}</div>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${(r.avgRampPerTurn/maxRamp)*100}%"></div></div>
-            <div class="hbar-val">${fmt1(r.avgRampPerTurn)}/t</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${(r.avgManaPerTurn/maxRamp)*100}%"></div></div>
+            <div class="hbar-val">${fmt1(r.avgManaPerTurn)}/t</div>
           </div>`).join('')}
         </div>
       </div>
