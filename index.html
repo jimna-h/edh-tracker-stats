@@ -132,18 +132,45 @@ section{ padding:64px 0; border-top:1px solid var(--line-soft); }
   border:2px solid var(--gold);
   display:flex; flex-direction:column; align-items:center; justify-content:center;
   box-shadow: inset 0 0 14px rgba(0,0,0,0.5);
+  overflow:hidden;
 }
-.life-badge .n{ font-weight:900; font-size:20px; color:var(--win); line-height:1; text-shadow:0 1px 10px rgba(0,0,0,0.6); }
-.life-badge .l{ font-size:8px; color:var(--text-faint); letter-spacing:.1em; margin-top:3px; font-weight:900; }
+.life-badge .n{ font-weight:900; font-size:24px; color:var(--text); line-height:1; text-shadow:0 1px 10px rgba(0,0,0,0.6); }
 .leader-info{ flex:1; min-width:0; }
 .leader-name{ font-weight:900; font-size:16px; color:var(--text); }
-.leader-sub{ font-size:12px; color:var(--text-dim); margin-top:3px; }
+.leader-pct{ font-weight:900; font-size:28px; color:var(--text); line-height:1.1; margin-top:6px; text-shadow:0 2px 14px rgba(0,0,0,0.5); }
+.leader-sub{ font-size:12px; color:var(--text-dim); margin-top:4px; }
 .rank-tag{
   font-size:10px; color:var(--ink); background:var(--gold);
   border-radius:999px; padding:2px 8px; font-weight:900; margin-right:8px; letter-spacing:.04em;
 }
 .bar-track{ height:6px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:10px; overflow:hidden; }
 .bar-fill{ height:100%; border-radius:999px; background:linear-gradient(90deg, var(--blue), var(--gold)); }
+
+/* Deck art tiles */
+.deck-tile{
+  position:relative; overflow:hidden; border-radius:var(--radius);
+  aspect-ratio: 4/3; background:var(--panel); border:1px solid var(--line);
+  background-size:cover; background-position:center;
+  display:flex; flex-direction:column; justify-content:space-between;
+}
+.deck-tile::after{
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(180deg, rgba(0,0,0,0.05) 25%, rgba(0,0,0,0.9) 100%);
+  pointer-events:none;
+}
+.deck-tile.no-art::after{ background:none; }
+.deck-tile .tile-top{ position:relative; z-index:1; display:flex; justify-content:space-between; align-items:flex-start; padding:10px; }
+.deck-tile .tile-bottom{ position:relative; z-index:1; padding:10px 14px 14px; }
+.deck-tile .tile-pos{
+  font-size:11px; font-weight:900; color:var(--gold); background:rgba(0,0,0,0.6);
+  backdrop-filter:blur(6px); border-radius:999px; padding:3px 9px; letter-spacing:.03em;
+}
+.deck-tile .tile-pct{
+  font-size:14px; font-weight:900; color:var(--text); background:rgba(0,0,0,0.6);
+  backdrop-filter:blur(6px); border-radius:999px; padding:3px 10px;
+}
+.deck-tile .tile-name{ font-weight:900; font-size:15px; color:#fff; text-shadow:0 2px 10px rgba(0,0,0,0.9); }
+.deck-tile .tile-meta{ font-size:10.5px; color:rgba(255,255,255,0.78); margin-top:3px; text-shadow:0 1px 6px rgba(0,0,0,0.9); }
 
 /* Mana pips */
 .pips{ display:inline-flex; gap:3px; vertical-align:middle; }
@@ -273,10 +300,15 @@ const SHEET_ID = '18_9UkJ3MAsNw4ByOGFDqOBE2u1gnpxQSR3tPi-_9i3I';
 const GAME_TAB = 'Game_Summary';
 const PLAYER_TAB = 'Player_Performance';
 
+// Separate spreadsheet, one tab per player, each tab a deck list for that
+// player. A row with Deck Name "PFP" (Exclude checked, so it never shows up
+// as an actual deck) holds that player's profile picture in Art_URL.
+const PFP_SHEET_ID = '1HfTUoLol3h1DmDeWTDsUqYTjq99SV9NGi-CmB3Wk89g';
+
 const MANA_COLORS = { W:'#F4EFDD', U:'#3E7FC1', B:'#4A4750', R:'#B8402F', G:'#3C7A4C', C:'#9A958A' };
 
-function gvizUrl(sheetName){
-  return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+function gvizUrl(sheetName, sheetId){
+  return `https://docs.google.com/spreadsheets/d/${sheetId || SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
 }
 
 function parseCSV(text){
@@ -332,12 +364,39 @@ function field(row, headerByNorm, ...candidates){
   return undefined;
 }
 
-async function fetchSheet(name){
-  const res = await fetch(gvizUrl(name));
+async function fetchSheet(name, sheetId){
+  const res = await fetch(gvizUrl(name, sheetId));
   if (!res.ok) throw new Error('fetch-failed');
   const text = await res.text();
   if (text.trim().startsWith('<')) throw new Error('not-public');
   return rowsToObjects(parseCSV(text));
+}
+
+// Fetches each player's own tab from the PFP spreadsheet (tab name === player
+// name) and pulls the Art_URL off the row whose Deck Name is "PFP". Any
+// individual player's fetch is allowed to fail silently (no tab, no PFP row,
+// network hiccup) — that player just falls back to an initial-letter avatar
+// rather than breaking the whole page.
+async function fetchPlayerPfps(playerNames){
+  const map = {};
+  await Promise.all(playerNames.map(async name => {
+    try{
+      const res = await fetch(gvizUrl(name, PFP_SHEET_ID));
+      if (!res.ok) return;
+      const text = await res.text();
+      if (text.trim().startsWith('<')) return;
+      const { rows, headerByNorm } = rowsToObjects(parseCSV(text));
+      const pfpRow = rows.find(r => {
+        const dn = field(r, headerByNorm, 'Deck Name', 'DeckName', 'Deck');
+        return (dn || '').trim().toLowerCase() === 'pfp';
+      });
+      if (pfpRow){
+        const url = field(pfpRow, headerByNorm, 'Art_URL', 'ArtURL');
+        if (url && url.trim()) map[name] = url.trim();
+      }
+    } catch(e){ /* no PFP for this player — fine, avatar falls back */ }
+  }));
+  return map;
 }
 
 function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
@@ -351,6 +410,9 @@ function pipsHTML(colorId){
   if (!uniq.length) return `<span class="pips"><span class="pip" style="background:${MANA_COLORS.C}">C</span></span>`;
   return `<span class="pips">` + uniq.map(c => `<span class="pip" style="background:${MANA_COLORS[c]}">${c}</span>`).join('') + `</span>`;
 }
+
+// Minimal escape for a URL dropped into a double-quoted HTML attribute.
+function escUrl(u){ return String(u || '').replace(/"/g, '%22'); }
 
 function monthLabel(ts){
   const d = new Date(ts.replace(' ','T'));
@@ -368,10 +430,11 @@ async function init(){
     document.getElementById('app').innerHTML = tpl;
     return;
   }
-  render(gamesData, perfData);
+  await render(gamesData, perfData);
 }
 
-function render(gamesData, perfData){
+function render(gamesData, perfData){ return renderAsync(gamesData, perfData); }
+async function renderAsync(gamesData, perfData){
   const gH = gamesData.headerByNorm, pH = perfData.headerByNorm;
   let games = gamesData.rows, perf = perfData.rows;
 
@@ -405,6 +468,7 @@ function render(gamesData, perfData){
     p.isWin = winnerPairs.has(pairKey(p.GameID, p.Player));
     p.turnDiedNum = p.isWin ? null : (parseFloat(turnDiedRaw) || null);
     p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
+    p.ArtURL = field(p, pH, 'Art_URL', 'ArtURL') || '';
   });
 
   // Guest players don't count toward any stats: excluding their rows here
@@ -423,6 +487,7 @@ function render(gamesData, perfData){
   const totalGames = games.length;
   const players = [...new Set(perf.map(p => p.Player))].filter(Boolean);
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
+  const pfpMap = await fetchPlayerPfps(players);
   const avgTurn = mean(games.map(g=>g.End_Turn).filter(x=>x));
   const longest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a, gamesNonGuestWin[0]);
   const shortest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a, gamesNonGuestWin[0]);
@@ -461,12 +526,13 @@ function render(gamesData, perfData){
     const deathTurns = rows.map(r=>r.turnDiedNum).filter(x=>x);
     const colorId = rows.find(r=>r.Color_ID)?.Color_ID || '';
     const owner = rows.find(r=>r.Owner)?.Owner || rows[0]?.Player || '';
+    const artUrl = rows.find(r=>r.ArtURL)?.ArtURL || '';
     return {
       name, owner, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgDeathTurn: mean(deathTurns),
       avgRamp: mean(ramp),
-      colorId
+      colorId, artUrl
     };
   }).filter(d => d.gamesPlayed > 0)
     .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
@@ -592,16 +658,21 @@ function render(gamesData, perfData){
         <div class="idx">01 / PLAYERS</div>
       </div>
       <div class="grid" style="grid-template-columns:1fr;">
-        ${playerStats.map((p,i) => `
+        ${playerStats.map((p,i) => {
+          const pfpUrl = pfpMap[p.name];
+          const initial = (p.name || '?').trim().charAt(0).toUpperCase();
+          const avatarStyle = pfpUrl ? `background-image:url("${escUrl(pfpUrl)}");background-size:cover;background-position:center;` : '';
+          return `
           <div class="panel leader-card">
-            <div class="life-badge"><div class="n">${p.wins}</div><div class="l">WINS</div></div>
+            <div class="life-badge" style="${avatarStyle}">${pfpUrl ? '' : `<div class="n">${initial}</div>`}</div>
             <div class="leader-info">
               <div class="leader-name"><span class="rank-tag">#${i+1}</span>${p.name}</div>
-              <div class="leader-sub">${p.gamesPlayed} games · ${pct(p.winRate)} win rate · avg out turn ${fmt1(p.avgSurvival)}</div>
+              <div class="leader-pct">${pct(p.winRate)}</div>
+              <div class="leader-sub">${p.wins}/${p.gamesPlayed} games · avg loss turn ${fmt1(p.avgSurvival)}</div>
               <div class="bar-track"><div class="bar-fill" style="width:${p.winRate*100}%"></div></div>
             </div>
           </div>
-        `).join('')}
+        `;}).join('')}
       </div>
     </div>
   </section>
@@ -631,17 +702,23 @@ function render(gamesData, perfData){
         <div><h2>Deck performance</h2><div class="section-desc">Every deck that's hit the table, ranked by win rate (min. 1 game).</div></div>
         <div class="idx">03 / DECKS</div>
       </div>
-      <div class="panel rowlist">
-        ${deckStats.map((d,i) => `
-          <div class="r">
-            <div class="pos">${i+1}</div>
-            <div class="main">
-              <div class="name">${pipsHTML(d.colorId)} &nbsp;${d.name}</div>
-              <div class="meta">piloted by ${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}${d.avgRamp!==null ? ' · avg ramp ' + fmt1(d.avgRamp) : ''}</div>
+      <div class="grid grid-3">
+        ${deckStats.map((d,i) => {
+          const hasArt = !!d.artUrl;
+          const bgStyle = hasArt ? `background-image:url("${escUrl(d.artUrl)}");` : '';
+          return `
+          <div class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}">
+            <div class="tile-top">
+              <span class="tile-pos">#${i+1}</span>
+              <span class="tile-pct">${pct(d.winRate)}</span>
             </div>
-            <div class="stat"><div class="big">${pct(d.winRate)}</div><div class="small">${d.wins}W · avg out T${fmt1(d.avgDeathTurn)}</div></div>
+            <div class="tile-bottom">
+              <div class="tile-name">${pipsHTML(d.colorId)} &nbsp;${d.name}</div>
+              <div class="tile-meta">piloted by ${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}${d.avgRamp!==null ? ' · avg ramp ' + fmt1(d.avgRamp) : ''}</div>
+              <div class="tile-meta">${d.wins}W · avg out T${fmt1(d.avgDeathTurn)}</div>
+            </div>
           </div>
-        `).join('')}
+        `;}).join('')}
       </div>
     </div>
   </section>
