@@ -379,18 +379,30 @@ function render(gamesData, perfData){
   games = games.filter(g => g.GameID);
   perf = perf.filter(p => p.GameID && p.Player);
   games.forEach(g => { g.End_Turn = parseFloat(g.End_Turn) || null; });
+
+  // Winner detection is NOT derived from Player_Performance's Turn_Died text.
+  // That field turns out to be inconsistently written across the sheet's
+  // history — sometimes literally "win", sometimes just left blank for the
+  // winner — so no single string match reliably identifies a winning row.
+  // Game_Summary's GameID -> Winner_Player pairing has proven reliable
+  // throughout (it's what powers Awards/Reigning Champion correctly), so we
+  // cross-reference against that instead: a Player_Performance row is a win
+  // iff its (GameID, Player) matches a (GameID, Winner_Player) in Game_Summary.
+  // GameID/Player are matched case- and whitespace-insensitively so a stray
+  // space or casing difference between the two tabs can't silently break the
+  // join the way the Turn_Died text match did.
+  const pairKey = (gameId, player) => normKey(gameId) + '|||' + normKey(player);
+  const winnerPairs = new Set(
+    games.filter(g => g.Winner_Player).map(g => pairKey(g.GameID, g.Winner_Player))
+  );
+
   perf.forEach(p => {
     p.Opening_Lands = parseFloat(field(p, pH, 'Opening_Lands', 'Opening_Lan')) || null;
     p.End_Lands = parseFloat(p.End_Lands) || null;
     p.End_Rocks = p.End_Rocks === '' ? null : parseFloat(p.End_Rocks);
     p.End_Dorks = p.End_Dorks === '' ? null : parseFloat(p.End_Dorks);
-    // Turn_Died is looked up tolerantly (case/spacing/typo-insensitive) because
-    // an exact-match lookup here was silently finding nothing against the live
-    // sheet's actual header text, which zeroed out every win-derived stat on
-    // the page (player/deck/color win rates) while leaving Game_Summary-based
-    // stats (awards, seats, trend) unaffected.
     const turnDiedRaw = field(p, pH, 'Turn_Died');
-    p.isWin = (turnDiedRaw || '').toLowerCase().trim() === 'win';
+    p.isWin = winnerPairs.has(pairKey(p.GameID, p.Player));
     p.turnDiedNum = p.isWin ? null : (parseFloat(turnDiedRaw) || null);
     p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
   });
@@ -404,12 +416,16 @@ function render(gamesData, perfData){
   const winCount = perf.filter(p => p.isWin).length;
   const sampleRows = perf.slice(0, 6).map(p => ({
     Player: p.Player,
+    GameID: p.GameID,
+    pairKey: pairKey(p.GameID, p.Player),
     resolvedTurnDiedValue: turnDiedHeaderResolved ? p[turnDiedHeaderResolved] : undefined,
     isWin: p.isWin
   }));
   const diag = {
     playerPerformanceHeadersSeen: Object.values(pH),
     turnDiedHeaderResolvedTo: turnDiedHeaderResolved,
+    winnerPairsFromGameSummary: winnerPairs.size,
+    sampleWinnerPairs: [...winnerPairs].slice(0, 6),
     totalPerfRows: perf.length,
     winCountDetected: winCount,
     sampleRows
@@ -556,10 +572,12 @@ function render(gamesData, perfData){
     <strong style="color:#ff8888;">DEBUG (delete this block once fixed):</strong>
     total Player_Performance rows: ${diag.totalPerfRows} &nbsp;·&nbsp;
     win rows detected: ${diag.winCountDetected} &nbsp;·&nbsp;
+    winner pairs from Game_Summary: ${diag.winnerPairsFromGameSummary} &nbsp;·&nbsp;
     "Turn_Died" resolved to header: <code>${diag.turnDiedHeaderResolvedTo === null ? 'NOT FOUND' : JSON.stringify(diag.turnDiedHeaderResolvedTo)}</code>
     <br>all headers seen in Player_Performance: <code>${JSON.stringify(diag.playerPerformanceHeadersSeen)}</code>
-    <br>first 6 rows — Player / raw Turn_Died value / isWin:
-    <pre style="white-space:pre-wrap;margin:6px 0 0;">${diag.sampleRows.map(r => `${r.Player}: ${JSON.stringify(r.resolvedTurnDiedValue)} -> isWin=${r.isWin}`).join('\n')}</pre>
+    <br>sample winner pairs (from Game_Summary): <code>${JSON.stringify(diag.sampleWinnerPairs)}</code>
+    <br>first 6 rows — Player / GameID / pairKey / raw Turn_Died / isWin:
+    <pre style="white-space:pre-wrap;margin:6px 0 0;">${diag.sampleRows.map(r => `${r.Player} | ${r.GameID} | ${r.pairKey} | raw="${r.resolvedTurnDiedValue}" -> isWin=${r.isWin}`).join('\n')}</pre>
   </div>
   <nav class="nav">
     <div class="nav-inner">
