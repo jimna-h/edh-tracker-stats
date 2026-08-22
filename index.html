@@ -376,27 +376,41 @@ async function fetchSheet(name, sheetId){
 // name) and pulls the Art_URL off the row whose Deck Name is "PFP". Any
 // individual player's fetch is allowed to fail silently (no tab, no PFP row,
 // network hiccup) — that player just falls back to an initial-letter avatar
-// rather than breaking the whole page.
+// rather than breaking the whole page. `debug` records exactly what happened
+// per player so failures are diagnosable instead of just silently absent.
 async function fetchPlayerPfps(playerNames){
   const map = {};
+  const debug = [];
   await Promise.all(playerNames.map(async name => {
+    const url = gvizUrl(name, PFP_SHEET_ID);
+    const rec = { name, url };
     try{
-      const res = await fetch(gvizUrl(name, PFP_SHEET_ID));
-      if (!res.ok) return;
+      const res = await fetch(url);
+      rec.httpStatus = res.status;
+      if (!res.ok){ rec.result = 'fetch-not-ok'; debug.push(rec); return; }
       const text = await res.text();
-      if (text.trim().startsWith('<')) return;
+      rec.textPreview = text.slice(0, 120);
+      if (text.trim().startsWith('<')){ rec.result = 'not-public-or-tab-missing (got HTML not CSV)'; debug.push(rec); return; }
       const { rows, headerByNorm } = rowsToObjects(parseCSV(text));
+      rec.headersSeen = Object.values(headerByNorm);
+      rec.rowCount = rows.length;
       const pfpRow = rows.find(r => {
         const dn = field(r, headerByNorm, 'Deck Name', 'DeckName', 'Deck');
         return (dn || '').trim().toLowerCase() === 'pfp';
       });
-      if (pfpRow){
-        const url = field(pfpRow, headerByNorm, 'Art_URL', 'ArtURL');
-        if (url && url.trim()) map[name] = url.trim();
-      }
-    } catch(e){ /* no PFP for this player — fine, avatar falls back */ }
+      if (!pfpRow){ rec.result = 'no row with Deck Name = PFP'; debug.push(rec); return; }
+      const pfpUrl = field(pfpRow, headerByNorm, 'Art_URL', 'ArtURL');
+      if (!pfpUrl || !pfpUrl.trim()){ rec.result = 'PFP row found but Art_URL empty'; debug.push(rec); return; }
+      map[name] = pfpUrl.trim();
+      rec.result = 'OK';
+      rec.resolvedUrl = pfpUrl.trim();
+      debug.push(rec);
+    } catch(e){
+      rec.result = 'threw: ' + (e && e.message);
+      debug.push(rec);
+    }
   }));
-  return map;
+  return { map, debug };
 }
 
 function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
@@ -487,7 +501,7 @@ async function renderAsync(gamesData, perfData){
   const totalGames = games.length;
   const players = [...new Set(perf.map(p => p.Player))].filter(Boolean);
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
-  const pfpMap = await fetchPlayerPfps(players);
+  const { map: pfpMap, debug: pfpDebug } = await fetchPlayerPfps(players);
   const avgTurn = mean(games.map(g=>g.End_Turn).filter(x=>x));
   const longest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a, gamesNonGuestWin[0]);
   const shortest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a, gamesNonGuestWin[0]);
@@ -617,6 +631,17 @@ async function renderAsync(gamesData, perfData){
   const maxMonthCount = Math.max(...monthStats.map(m=>m.count), 1);
 
   const html = `
+  <div id="pfp-diag" style="background:#3a0d0d;border-bottom:2px solid #ef4444;padding:14px 24px;font-size:12px;line-height:1.7;color:#fff;">
+    <strong style="color:#ff8888;">PFP DEBUG (delete this block once fixed):</strong>
+    tried ${pfpDebug.length} player tab(s) against sheet <code>${PFP_SHEET_ID}</code>
+    <pre style="white-space:pre-wrap;margin:6px 0 0;">${pfpDebug.map(r => {
+      const lines = [`${r.name}: ${r.result}`, `  url: ${r.url}`, `  http: ${r.httpStatus ?? 'n/a'}`];
+      if (r.headersSeen) lines.push(`  headers: ${JSON.stringify(r.headersSeen)}  rows: ${r.rowCount}`);
+      if (r.textPreview !== undefined) lines.push(`  preview: ${JSON.stringify(r.textPreview)}`);
+      if (r.resolvedUrl) lines.push(`  resolved: ${r.resolvedUrl}`);
+      return lines.join('\n');
+    }).join('\n\n')}</pre>
+  </div>
   <nav class="nav">
     <div class="nav-inner">
       <div class="nav-mark"><span class="dot"></span>The Table</div>
