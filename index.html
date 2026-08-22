@@ -395,6 +395,27 @@ function render(gamesData, perfData){
     p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
   });
 
+  // ---------- TEMP DIAGNOSTICS ----------
+  // Shows exactly what this browser resolved for the win-marker field, so we
+  // can see real data instead of guessing blind. Safe to delete this whole
+  // block (and its <section id="diag"> in the template below) once win rates
+  // are confirmed working.
+  const turnDiedHeaderResolved = pH[normKey('Turn_Died')] ?? null;
+  const winCount = perf.filter(p => p.isWin).length;
+  const sampleRows = perf.slice(0, 6).map(p => ({
+    Player: p.Player,
+    resolvedTurnDiedValue: turnDiedHeaderResolved ? p[turnDiedHeaderResolved] : undefined,
+    isWin: p.isWin
+  }));
+  const diag = {
+    playerPerformanceHeadersSeen: Object.values(pH),
+    turnDiedHeaderResolvedTo: turnDiedHeaderResolved,
+    totalPerfRows: perf.length,
+    winCountDetected: winCount,
+    sampleRows
+  };
+  console.log('[stats.html diagnostics]', diag);
+
   const totalGames = games.length;
   const players = [...new Set(perf.map(p => p.Player))].filter(Boolean);
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
@@ -531,6 +552,15 @@ function render(gamesData, perfData){
   const maxMonthCount = Math.max(...monthStats.map(m=>m.count), 1);
 
   const html = `
+  <div id="diag" style="background:#3a0d0d;border-bottom:2px solid #ef4444;padding:14px 24px;font-size:12px;line-height:1.7;color:#fff;">
+    <strong style="color:#ff8888;">DEBUG (delete this block once fixed):</strong>
+    total Player_Performance rows: ${diag.totalPerfRows} &nbsp;·&nbsp;
+    win rows detected: ${diag.winCountDetected} &nbsp;·&nbsp;
+    "Turn_Died" resolved to header: <code>${diag.turnDiedHeaderResolvedTo === null ? 'NOT FOUND' : JSON.stringify(diag.turnDiedHeaderResolvedTo)}</code>
+    <br>all headers seen in Player_Performance: <code>${JSON.stringify(diag.playerPerformanceHeadersSeen)}</code>
+    <br>first 6 rows — Player / raw Turn_Died value / isWin:
+    <pre style="white-space:pre-wrap;margin:6px 0 0;">${diag.sampleRows.map(r => `${r.Player}: ${JSON.stringify(r.resolvedTurnDiedValue)} -> isWin=${r.isWin}`).join('\n')}</pre>
+  </div>
   <nav class="nav">
     <div class="nav-inner">
       <div class="nav-mark"><span class="dot"></span>The Table</div>
