@@ -301,13 +301,35 @@ function parseCSV(text){
   return rows.filter(r => r.length > 1 || (r.length===1 && r[0] !== ''));
 }
 
+// Normalize a header/candidate name for tolerant matching: lowercase,
+// strip everything but letters+digits. This absorbs the exact kind of
+// sheet drift we've hit before (typos like "Muilligan_Type", inconsistent
+// truncation like "Opening_Lan", stray spaces, underscore-vs-space, casing)
+// without needing to hardcode every specific variant by hand.
+function normKey(s){ return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
 function rowsToObjects(rows){
   const headers = rows[0].map(h => h.trim());
-  return rows.slice(1).map(r => {
+  const headerByNorm = {};
+  headers.forEach(h => { if (!(normKey(h) in headerByNorm)) headerByNorm[normKey(h)] = h; });
+  const objs = rows.slice(1).map(r => {
     const obj = {};
     headers.forEach((h,i) => obj[h] = (r[i] !== undefined ? r[i].trim() : ''));
     return obj;
   });
+  return { rows: objs, headerByNorm };
+}
+
+// Tolerant field getter: tries each candidate name against the actual sheet
+// headers (case/spacing/typo-insensitive) and returns the first that exists,
+// rather than requiring an exact string match. Use this for any column whose
+// real header spelling in the live sheet might drift from what we expect.
+function field(row, headerByNorm, ...candidates){
+  for (const c of candidates){
+    const h = headerByNorm[normKey(c)];
+    if (h !== undefined && row[h] !== undefined) return row[h];
+  }
+  return undefined;
 }
 
 async function fetchSheet(name){
@@ -337,31 +359,40 @@ function monthLabel(ts){
 }
 
 async function init(){
-  let games, perf;
+  let gamesData, perfData;
   try{
-    [games, perf] = await Promise.all([fetchSheet(GAME_TAB), fetchSheet(PLAYER_TAB)]);
-    if (!games.length || !perf.length) throw new Error('empty');
+    [gamesData, perfData] = await Promise.all([fetchSheet(GAME_TAB), fetchSheet(PLAYER_TAB)]);
+    if (!gamesData.rows.length || !perfData.rows.length) throw new Error('empty');
   } catch(e){
     const tpl = document.getElementById('errorTemplate').innerHTML.replace('__SHEET_ID__', SHEET_ID);
     document.getElementById('app').innerHTML = tpl;
     return;
   }
-  render(games, perf);
+  render(gamesData, perfData);
 }
 
-function render(games, perf){
+function render(gamesData, perfData){
+  const gH = gamesData.headerByNorm, pH = perfData.headerByNorm;
+  let games = gamesData.rows, perf = perfData.rows;
+
   // ---------- normalize ----------
   games = games.filter(g => g.GameID);
   perf = perf.filter(p => p.GameID && p.Player);
   games.forEach(g => { g.End_Turn = parseFloat(g.End_Turn) || null; });
   perf.forEach(p => {
-    p.Opening_Lands = parseFloat(p.Opening_Lan ?? p.Opening_Lands) || null;
+    p.Opening_Lands = parseFloat(field(p, pH, 'Opening_Lands', 'Opening_Lan')) || null;
     p.End_Lands = parseFloat(p.End_Lands) || null;
     p.End_Rocks = p.End_Rocks === '' ? null : parseFloat(p.End_Rocks);
     p.End_Dorks = p.End_Dorks === '' ? null : parseFloat(p.End_Dorks);
-    p.isWin = (p.Turn_Died || '').toLowerCase().trim() === 'win';
-    p.turnDiedNum = p.isWin ? null : (parseFloat(p.Turn_Died) || null);
-    p.SeatNum = parseFloat(p.Seat_Position) || null;
+    // Turn_Died is looked up tolerantly (case/spacing/typo-insensitive) because
+    // an exact-match lookup here was silently finding nothing against the live
+    // sheet's actual header text, which zeroed out every win-derived stat on
+    // the page (player/deck/color win rates) while leaving Game_Summary-based
+    // stats (awards, seats, trend) unaffected.
+    const turnDiedRaw = field(p, pH, 'Turn_Died');
+    p.isWin = (turnDiedRaw || '').toLowerCase().trim() === 'win';
+    p.turnDiedNum = p.isWin ? null : (parseFloat(turnDiedRaw) || null);
+    p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
   });
 
   const totalGames = games.length;
@@ -449,7 +480,7 @@ function render(games, perf){
   // ---------- mulligans ----------
   const mullMap = {};
   games.forEach(g => {
-    const t = g.Muilligan_Type || g.Mulligan_Type || 'Unknown';
+    const t = field(g, gH, 'Mulligan_Type', 'Muilligan_Type') || 'Unknown';
     if (!mullMap[t]) mullMap[t] = { count:0, turns:[] };
     mullMap[t].count++;
     if (g.End_Turn) mullMap[t].turns.push(g.End_Turn);
