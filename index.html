@@ -635,17 +635,6 @@ async function renderAsync(gamesData, perfData){
   const maxMonthCount = Math.max(...monthStats.map(m=>m.count), 1);
 
   const html = `
-  <div id="pfp-diag" style="background:#3a0d0d;border-bottom:2px solid #ef4444;padding:14px 24px;font-size:12px;line-height:1.7;color:#fff;">
-    <strong style="color:#ff8888;">PFP DEBUG (delete this block once fixed):</strong>
-    tried ${pfpDebug.length} player tab(s) against sheet <code>${PFP_SHEET_ID}</code>
-    <pre style="white-space:pre-wrap;margin:6px 0 0;">${pfpDebug.map(r => {
-      const lines = [`${r.name}: ${r.result}`, `  url: ${r.url}`, `  http: ${r.httpStatus ?? 'n/a'}`];
-      if (r.headersSeen) lines.push(`  headers: ${JSON.stringify(r.headersSeen)}  rows: ${r.rowCount}`);
-      if (r.textPreview !== undefined) lines.push(`  preview: ${JSON.stringify(r.textPreview)}`);
-      if (r.resolvedUrl) lines.push(`  resolved: ${r.resolvedUrl}`);
-      return lines.join('\n');
-    }).join('\n\n')}</pre>
-  </div>
   <nav class="nav">
     <div class="nav-inner">
       <div class="nav-mark"><span class="dot"></span>The Table</div>
@@ -658,6 +647,7 @@ async function renderAsync(gamesData, perfData){
         <a href="#trend">Trend</a>
         <a href="#awards">Awards</a>
         <a href="#rivalries">Rivalries</a>
+        <a href="deep-dive.html" style="color:var(--gold-bright);">Deep Dive →</a>
       </div>
     </div>
   </nav>
@@ -743,7 +733,7 @@ async function renderAsync(gamesData, perfData){
             </div>
             <div class="tile-bottom">
               <div class="tile-name">${pipsHTML(d.colorId)} &nbsp;${d.name}</div>
-              <div class="tile-meta">piloted by ${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}${d.avgRamp!==null ? ' · avg ramp ' + fmt1(d.avgRamp) : ''}</div>
+              <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}${d.avgRamp!==null ? ' · avg ramp ' + fmt1(d.avgRamp) : ''}</div>
               <div class="tile-meta">${d.wins}W · avg out T${fmt1(d.avgDeathTurn)}</div>
             </div>
           </div>
@@ -783,7 +773,7 @@ async function renderAsync(gamesData, perfData){
   <section id="mulligans">
     <div class="wrap">
       <div class="section-head">
-        <div><h2>Mulligan habits</h2><div class="section-desc">How the eventual winner mulliganed, per game.</div></div>
+        <div><h2>Mulligan habits</h2><div class="section-desc">Which mulligan rule the table used, per game — applies to everyone at the table, not just the winner.</div></div>
         <div class="idx">05 / MULLIGANS</div>
       </div>
       <div class="panel" style="padding:24px 24px 10px;">
@@ -874,7 +864,8 @@ async function renderAsync(gamesData, perfData){
 
   <footer>
     Reads live from the Game_Summary and Player_Performance tabs · reload the page any time to pull the latest games.
-    <br><button class="refresh-btn" onclick="location.reload()">Refresh data</button>
+    <br><a href="deep-dive.html" style="color:var(--gold-bright);font-size:12px;">Deep Dive →</a>
+    &nbsp;&nbsp;<button class="refresh-btn" onclick="location.reload()">Refresh data</button>
   </footer>
   `;
 
