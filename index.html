@@ -407,39 +407,28 @@ function render(gamesData, perfData){
     p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
   });
 
-  // ---------- TEMP DIAGNOSTICS ----------
-  // Shows exactly what this browser resolved for the win-marker field, so we
-  // can see real data instead of guessing blind. Safe to delete this whole
-  // block (and its <section id="diag"> in the template below) once win rates
-  // are confirmed working.
-  const turnDiedHeaderResolved = pH[normKey('Turn_Died')] ?? null;
-  const winCount = perf.filter(p => p.isWin).length;
-  const sampleRows = perf.slice(0, 6).map(p => ({
-    Player: p.Player,
-    GameID: p.GameID,
-    pairKey: pairKey(p.GameID, p.Player),
-    resolvedTurnDiedValue: turnDiedHeaderResolved ? p[turnDiedHeaderResolved] : undefined,
-    isWin: p.isWin
-  }));
-  const diag = {
-    playerPerformanceHeadersSeen: Object.values(pH),
-    turnDiedHeaderResolvedTo: turnDiedHeaderResolved,
-    winnerPairsFromGameSummary: winnerPairs.size,
-    sampleWinnerPairs: [...winnerPairs].slice(0, 6),
-    totalPerfRows: perf.length,
-    winCountDetected: winCount,
-    sampleRows
-  };
-  console.log('[stats.html diagnostics]', diag);
+  // Guest players don't count toward any stats: excluding their rows here
+  // cascades cleanly into every derived stat below (leaderboard, decks,
+  // colors, seats, rivalries) since they all build from this `perf` array.
+  const isGuest = name => (name || '').trim().toLowerCase() === 'guest';
+  perf = perf.filter(p => !isGuest(p.Player));
+
+  // Games a guest won are excluded specifically from person-attributed
+  // awards (fastest win / longest grind / reigning champion) — crediting
+  // "Guest" as a standing record doesn't mean anything. Table-wide facts
+  // (total games, avg turn, seat rates, mulligan habits, monthly trend)
+  // still include every logged game regardless of who won it.
+  const gamesNonGuestWin = games.filter(g => !isGuest(g.Winner_Player));
 
   const totalGames = games.length;
   const players = [...new Set(perf.map(p => p.Player))].filter(Boolean);
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
   const avgTurn = mean(games.map(g=>g.End_Turn).filter(x=>x));
-  const longest = games.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a, games[0]);
-  const shortest = games.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a, games[0]);
+  const longest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a, gamesNonGuestWin[0]);
+  const shortest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a, gamesNonGuestWin[0]);
   const dateSorted = [...games].filter(g=>g.Timestamp).sort((a,b)=> new Date(a.Timestamp) - new Date(b.Timestamp));
-  const mostRecent = dateSorted[dateSorted.length-1];
+  const dateSortedNonGuestWin = dateSorted.filter(g => !isGuest(g.Winner_Player));
+  const mostRecent = dateSortedNonGuestWin[dateSortedNonGuestWin.length-1];
 
   // ---------- players ----------
   const playerStats = players.map(name => {
@@ -448,15 +437,11 @@ function render(gamesData, perfData){
     const gamesPlayed = rows.length;
     const survivalTurns = rows.map(p=>p.turnDiedNum).filter(x=>x);
     const deckSet = new Set(rows.map(r=>r.Deck).filter(Boolean));
-    const colorCounts = {};
-    rows.forEach(r => { if(r.Color_ID){ colorCounts[r.Color_ID] = (colorCounts[r.Color_ID]||0)+1; } });
-    const favColor = Object.entries(colorCounts).sort((a,b)=>b[1]-a[1])[0];
     return {
       name, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgSurvival: mean(survivalTurns),
-      deckCount: deckSet.size,
-      favColor: favColor ? favColor[0] : null
+      deckCount: deckSet.size
     };
   }).filter(p => p.gamesPlayed > 0)
     .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
@@ -563,22 +548,9 @@ function render(gamesData, perfData){
   const rivalries = Object.values(pairMap).sort((a,b)=> b.games - a.games).slice(0,4);
 
   // ================= RENDER =================
-  const maxWinRate = Math.max(...playerStats.map(p=>p.winRate), 0.01);
-  const maxSeatRate = Math.max(...[1,2,3,4].map(s => seatTotals[s] ? seatWins[s]/seatTotals[s] : 0), 0.01);
   const maxMonthCount = Math.max(...monthStats.map(m=>m.count), 1);
 
   const html = `
-  <div id="diag" style="background:#3a0d0d;border-bottom:2px solid #ef4444;padding:14px 24px;font-size:12px;line-height:1.7;color:#fff;">
-    <strong style="color:#ff8888;">DEBUG (delete this block once fixed):</strong>
-    total Player_Performance rows: ${diag.totalPerfRows} &nbsp;·&nbsp;
-    win rows detected: ${diag.winCountDetected} &nbsp;·&nbsp;
-    winner pairs from Game_Summary: ${diag.winnerPairsFromGameSummary} &nbsp;·&nbsp;
-    "Turn_Died" resolved to header: <code>${diag.turnDiedHeaderResolvedTo === null ? 'NOT FOUND' : JSON.stringify(diag.turnDiedHeaderResolvedTo)}</code>
-    <br>all headers seen in Player_Performance: <code>${JSON.stringify(diag.playerPerformanceHeadersSeen)}</code>
-    <br>sample winner pairs (from Game_Summary): <code>${JSON.stringify(diag.sampleWinnerPairs)}</code>
-    <br>first 6 rows — Player / GameID / pairKey / raw Turn_Died / isWin:
-    <pre style="white-space:pre-wrap;margin:6px 0 0;">${diag.sampleRows.map(r => `${r.Player} | ${r.GameID} | ${r.pairKey} | raw="${r.resolvedTurnDiedValue}" -> isWin=${r.isWin}`).join('\n')}</pre>
-  </div>
   <nav class="nav">
     <div class="nav-inner">
       <div class="nav-mark"><span class="dot"></span>The Table</div>
@@ -619,14 +591,14 @@ function render(gamesData, perfData){
         <div><h2>Player leaderboard</h2><div class="section-desc">Win rate across every logged game, best record first.</div></div>
         <div class="idx">01 / PLAYERS</div>
       </div>
-      <div class="grid grid-2">
+      <div class="grid" style="grid-template-columns:1fr;">
         ${playerStats.map((p,i) => `
           <div class="panel leader-card">
             <div class="life-badge"><div class="n">${p.wins}</div><div class="l">WINS</div></div>
             <div class="leader-info">
               <div class="leader-name"><span class="rank-tag">#${i+1}</span>${p.name}</div>
-              <div class="leader-sub">${p.gamesPlayed} games · ${pct(p.winRate)} win rate · avg out turn ${fmt1(p.avgSurvival)}${p.favColor ? ' · ' + pipsHTML(p.favColor) : ''}</div>
-              <div class="bar-track"><div class="bar-fill" style="width:${(p.winRate/maxWinRate)*100}%"></div></div>
+              <div class="leader-sub">${p.gamesPlayed} games · ${pct(p.winRate)} win rate · avg out turn ${fmt1(p.avgSurvival)}</div>
+              <div class="bar-track"><div class="bar-fill" style="width:${p.winRate*100}%"></div></div>
             </div>
           </div>
         `).join('')}
@@ -645,7 +617,7 @@ function render(gamesData, perfData){
           const rate = seatTotals[s] ? seatWins[s]/seatTotals[s] : 0;
           return `<div class="hbar-row">
             <div class="hbar-label">Seat ${s}</div>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${(rate/maxSeatRate)*100}%"></div></div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${rate*100}%"></div></div>
             <div class="hbar-val">${pct(rate)}</div>
           </div>`;
         }).join('')}
