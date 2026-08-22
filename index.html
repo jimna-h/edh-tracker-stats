@@ -426,7 +426,11 @@ function pipsHTML(colorId){
 }
 
 // Minimal escape for a URL dropped into a double-quoted HTML attribute.
-function escUrl(u){ return String(u || '').replace(/"/g, '%22'); }
+// Escape both quote styles for a URL dropped into an HTML attribute value:
+// the attribute itself is double-quoted, but the value also gets wrapped in
+// CSS url('...') using single quotes, so either character breaking loose
+// would truncate the attribute early.
+function escUrl(u){ return String(u || '').replace(/"/g, '%22').replace(/'/g, '%27'); }
 
 function monthLabel(ts){
   const d = new Date(ts.replace(' ','T'));
@@ -686,7 +690,7 @@ async function renderAsync(gamesData, perfData){
         ${playerStats.map((p,i) => {
           const pfpUrl = pfpMap[p.name];
           const initial = (p.name || '?').trim().charAt(0).toUpperCase();
-          const avatarStyle = pfpUrl ? `background-image:url("${escUrl(pfpUrl)}");background-size:cover;background-position:center;` : '';
+          const avatarStyle = pfpUrl ? `background-image:url('${escUrl(pfpUrl)}');background-size:cover;background-position:center;` : '';
           return `
           <div class="panel leader-card">
             <div class="life-badge" style="${avatarStyle}">${pfpUrl ? '' : `<div class="n">${initial}</div>`}</div>
@@ -730,7 +734,7 @@ async function renderAsync(gamesData, perfData){
       <div class="grid grid-3">
         ${deckStats.map((d,i) => {
           const hasArt = !!d.artUrl;
-          const bgStyle = hasArt ? `background-image:url("${escUrl(d.artUrl)}");` : '';
+          const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
           return `
           <div class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}">
             <div class="tile-top">
