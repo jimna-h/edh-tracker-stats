@@ -270,6 +270,19 @@ footer .refresh-btn:hover{ background:var(--panel-hover); }
   .rowlist .r{ grid-template-columns: 20px 1fr auto; padding:12px 16px; }
   .hbar-label{ width:88px; font-size:10.5px; }
 }
+
+/* ---------- Active/inactive deck toggle ---------- */
+[data-inactive]{ display:none; }
+.show-inactive [data-inactive]{ display:revert; }
+.inactive-toggle{
+  display:inline-flex; align-items:center; gap:6px;
+  background:var(--panel); border:1px solid var(--line); color:var(--text-dim);
+  padding:7px 14px; border-radius:999px; font-size:11px; font-weight:900;
+  text-transform:uppercase; letter-spacing:.06em; cursor:pointer; font-family:inherit;
+  margin-bottom:14px;
+}
+.inactive-toggle:hover{ background:var(--panel-hover); color:var(--text); }
+
 </style>
 </head>
 <body>
@@ -374,13 +387,19 @@ async function fetchSheet(name, sheetId){
 }
 
 // Fetches each player's own tab from the PFP spreadsheet (tab name === player
-// name) and pulls the Art_URL off the row whose Deck Name is "PFP". Any
-// individual player's fetch is allowed to fail silently (no tab, no PFP row,
-// network hiccup) — that player just falls back to an initial-letter avatar
-// rather than breaking the whole page. `debug` records exactly what happened
-// per player so failures are diagnosable instead of just silently absent.
+// name). Two things come out of each tab:
+//  - the Art_URL off the row whose Deck Name is "PFP" (that player's avatar)
+//  - the set of that player's currently-ACTIVE decks: every other row whose
+//    Exclude checkbox isn't checked. This tab is the source of truth for
+//    "is this deck still part of the group" — decks that show up in game
+//    history but aren't (uncrossed-out) in their owner's tab are retired.
+// Any individual player's fetch is allowed to fail silently (no tab, no PFP
+// row, network hiccup) — that player just falls back to an initial-letter
+// avatar, and their decks are treated as active-by-default (fail open,
+// rather than mass-hiding decks because a fetch hiccuped).
 async function fetchPlayerPfps(playerNames){
   const map = {};
+  const activeDecksByOwner = {};
   const debug = [];
   await Promise.all(playerNames.map(async name => {
     const url = gvizUrl(name, PFP_SHEET_ID);
@@ -399,19 +418,46 @@ async function fetchPlayerPfps(playerNames){
         const dn = field(r, headerByNorm, 'Deck Name', 'DeckName', 'Deck');
         return (dn || '').trim().toLowerCase() === 'pfp';
       });
-      if (!pfpRow){ rec.result = 'no row with Deck Name = PFP'; debug.push(rec); return; }
-      const pfpUrl = field(pfpRow, headerByNorm, 'Art_URL', 'ArtURL');
-      if (!pfpUrl || !pfpUrl.trim()){ rec.result = 'PFP row found but Art_URL empty'; debug.push(rec); return; }
-      map[name] = pfpUrl.trim();
+      if (pfpRow){
+        const pfpUrl = field(pfpRow, headerByNorm, 'Art_URL', 'ArtURL');
+        if (pfpUrl && pfpUrl.trim()) map[name] = pfpUrl.trim();
+      }
+      const activeSet = new Set();
+      rows.forEach(r => {
+        const dn = field(r, headerByNorm, 'Deck Name', 'DeckName', 'Deck');
+        if (!dn || dn.trim().toLowerCase() === 'pfp') return;
+        const excludeRaw = field(r, headerByNorm, 'Exclude');
+        const excluded = (excludeRaw || '').trim().toUpperCase() === 'TRUE';
+        if (!excluded) activeSet.add(normKey(dn));
+      });
+      activeDecksByOwner[name] = activeSet;
       rec.result = 'OK';
-      rec.resolvedUrl = pfpUrl.trim();
       debug.push(rec);
     } catch(e){
       rec.result = 'threw: ' + (e && e.message);
       debug.push(rec);
     }
   }));
-  return { map, debug };
+  return { map, activeDecksByOwner, debug };
+}
+
+// A deck instance is "active" if its owner's tab lists it (un-excluded).
+// If we have no data at all for that owner (fetch failed, no tab), we fail
+// open and treat it as active rather than silently hiding decks because of
+// a data hiccup.
+function isDeckActive(activeDecksByOwner, owner, deckName){
+  const set = activeDecksByOwner[owner];
+  if (!set) return true;
+  return set.has(normKey(deckName));
+}
+
+// Toggles a "show inactive" class on the given container and updates the
+// triggering button's label. Called from inline onclick handlers.
+function toggleInactive(containerId, btn, hiddenCount){
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const showing = el.classList.toggle('show-inactive');
+  btn.textContent = showing ? 'Hide inactive decks' : ('Show inactive decks (' + hiddenCount + ')');
 }
 
 function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
@@ -513,7 +559,7 @@ async function renderAsync(gamesData, perfData){
   const totalGames = games.length;
   const players = [...new Set(perf.map(p => p.Player))].filter(Boolean);
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
-  const { map: pfpMap, debug: pfpDebug } = await fetchPlayerPfps(players);
+  const { map: pfpMap, activeDecksByOwner } = await fetchPlayerPfps(players);
   const avgTurn = mean(games.map(g=>g.End_Turn).filter(x=>x));
   const longest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a, gamesNonGuestWin[0]);
   const shortest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a, gamesNonGuestWin[0]);
@@ -556,10 +602,12 @@ async function renderAsync(gamesData, perfData){
       name, owner, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgWinTurn: mean(winTurns),
-      colorId, artUrl
+      colorId, artUrl,
+      isActive: isDeckActive(activeDecksByOwner, owner, name)
     };
   }).filter(d => d.gamesPlayed > 0)
     .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
+  const inactiveDeckCount = deckStats.filter(d => !d.isActive).length;
 
   // ---------- color identity ----------
   // Grouped by individual color rather than exact combo: a WU deck counts
@@ -733,15 +781,16 @@ async function renderAsync(gamesData, perfData){
   <section id="decks">
     <div class="wrap">
       <div class="section-head">
-        <div><h2>Deck performance</h2><div class="section-desc">Every deck that's hit the table, ranked by win rate (min. 1 game).</div></div>
+        <div><h2>Deck performance</h2><div class="section-desc">Every active deck that's hit the table, ranked by win rate (min. 1 game).</div></div>
         <div class="idx">03 / DECKS</div>
       </div>
-      <div class="grid grid-3">
+      ${inactiveDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('deckGrid', this, ${inactiveDeckCount})">Show inactive decks (${inactiveDeckCount})</button>` : ''}
+      <div class="grid grid-3" id="deckGrid">
         ${deckStats.map((d,i) => {
           const hasArt = !!d.artUrl;
           const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
           return `
-          <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;">
+          <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;"${d.isActive ? '' : ' data-inactive="1"'}>
             <div class="tile-top">
               <span class="tile-pos">#${i+1}</span>
               <span class="tile-pct">${pct(d.winRate)}</span>
