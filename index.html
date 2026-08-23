@@ -801,7 +801,7 @@ async function renderAsync(gamesData, perfData){
       }
     }
   });
-  const rivalries = Object.values(pairMap).sort((a,b)=> b.games - a.games).slice(0,4);
+  const rivalries = Object.values(pairMap).sort((a,b)=> b.games - a.games).slice(0,6);
 
   // ================= RENDER =================
   const maxMonthCount = Math.max(...monthStats.map(m=>m.count), 1);
