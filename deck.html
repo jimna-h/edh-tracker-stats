@@ -500,11 +500,13 @@ function isDeckActive(activeDecksByOwner, owner, deckName){
 
 // Toggles a "show inactive" class on the given container and updates the
 // triggering button's label. Called from inline onclick handlers.
-function toggleInactive(containerId, btn, hiddenCount){
+function toggleInactive(containerId, btn, hiddenCount, showLabel, hideLabel){
   const el = document.getElementById(containerId);
   if (!el) return;
   const showing = el.classList.toggle('show-inactive');
-  btn.textContent = showing ? 'Hide inactive decks' : ('Show inactive decks (' + hiddenCount + ')');
+  btn.textContent = showing
+    ? (hideLabel || 'Hide inactive decks')
+    : (showLabel || ('Show inactive decks (' + hiddenCount + ')'));
 }
 
 function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
@@ -588,6 +590,12 @@ async function renderAsync(gamesData, perfData){
     p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
     p.ArtURL = field(p, pH, 'Art_URL', 'ArtURL') || '';
     p.gameEndTurn = gamesById[p.GameID]?.End_Turn ?? null;
+    // Owner/Color_ID had been read via direct property access elsewhere
+    // (rows.find(r=>r.Owner), p.Color_ID) instead of the tolerant field()
+    // lookup everything else here uses — normalizing them once, here, means
+    // every downstream direct access benefits without hunting down each site.
+    p.Owner = field(p, pH, 'Owner', 'Deck_Owner', 'DeckOwner') || p.Owner || '';
+    p.Color_ID = field(p, pH, 'Color_ID', 'Colors', 'ColorID', 'Color') || p.Color_ID || '';
   });
 
   // Guest players don't count toward any stats: excluding their rows here
@@ -608,8 +616,12 @@ async function renderAsync(gamesData, perfData){
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
   const { map: pfpMap, activeDecksByOwner } = await fetchPlayerPfps(players);
   const avgTurn = mean(games.map(g=>g.End_Turn).filter(x=>x));
-  const longest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a, gamesNonGuestWin[0]);
-  const shortest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a, gamesNonGuestWin[0]);
+  // Null (not undefined-from-empty-reduce) when every logged game so far was
+  // won by Guest — the template below must check for this rather than assume
+  // longest/shortest are always real game objects, or it throws on .End_Turn
+  // and blanks the whole page.
+  const longest = gamesNonGuestWin.length ? gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a) : null;
+  const shortest = gamesNonGuestWin.length ? gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a) : null;
   const dateSorted = [...games].filter(g=>g.Timestamp).sort((a,b)=> new Date(a.Timestamp) - new Date(b.Timestamp));
   const dateSortedNonGuestWin = dateSorted.filter(g => !isGuest(g.Winner_Player));
   const mostRecent = dateSortedNonGuestWin[dateSortedNonGuestWin.length-1];
@@ -634,7 +646,7 @@ async function renderAsync(gamesData, perfData){
   const seatTotals = {1:0,2:0,3:0,4:0};
   perf.forEach(p => { if (seatTotals[p.SeatNum] !== undefined) seatTotals[p.SeatNum]++; });
   const seatWins = {1:0,2:0,3:0,4:0};
-  games.forEach(g => { const s = parseFloat(g.Winner_Seat); if (seatWins[s] !== undefined) seatWins[s]++; });
+  gamesNonGuestWin.forEach(g => { const s = parseFloat(g.Winner_Seat); if (seatWins[s] !== undefined) seatWins[s]++; }); // numerator must match seatTotals' guest-filtered denominator (perf), or a Guest win inflates that seat's rate
 
   // ---------- decks ----------
   const deckStats = decks.map(name => {
@@ -668,22 +680,24 @@ async function renderAsync(gamesData, perfData){
 
   if (!targetName){
     // ---------- directory mode: no name given, or name not recognized ----------
+    const inactiveDeckCount = deckStats.filter(d => !d.isActive).length;
     bodyHtml = `
       <header class="hero" style="padding:56px 24px 24px;">
         <div class="hero-inner">
           <div class="eyebrow"><span class="line"></span>Deck directory</div>
           <h1 style="font-size:clamp(28px,4.4vw,44px);">${nameParam ? `No deck named "${nameParam}"` : 'Choose a deck'}</h1>
-          <p class="sub">${nameParam ? "That name doesn't match anything in the sheet. Pick from the list below." : 'Every deck that has hit the table — tap one to see its full profile.'} <a href="index.html" style="color:var(--gold-bright);">← Back to overview</a></p>
+          <p class="sub">${nameParam ? "That name doesn't match anything in the sheet. Pick from the list below." : 'Every active deck that has hit the table — tap one to see its full profile.'} <a href="index.html" style="color:var(--gold-bright);">← Back to overview</a></p>
         </div>
       </header>
       <section>
         <div class="wrap">
-          <div class="grid grid-3">
+          ${inactiveDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('deckDirGrid', this, ${inactiveDeckCount})">Show inactive decks (${inactiveDeckCount})</button>` : ''}
+          <div class="grid grid-3" id="deckDirGrid">
             ${deckStats.map((d,i) => {
               const hasArt = !!d.artUrl;
               const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
               return `
-              <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;">
+              <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;"${d.isActive ? '' : ' data-inactive="1"'}>
                 <div class="tile-top">
                   <span class="tile-pos">#${i+1}</span>
                   <span class="tile-pct">${pct(d.winRate)}</span>
@@ -749,10 +763,6 @@ async function renderAsync(gamesData, perfData){
     const byGame = {};
     rows.forEach(r => { byGame[r.GameID] = true; });
     const oppMap = {};
-    perf.forEach(p => {
-      if (!byGame[p.GameID] || p.Deck === targetName) return;
-      if (!oppMap[p.Deck]) oppMap[p.Deck] = { name:p.Deck, games:0, myWins:0, theirWins:0 };
-    });
     Object.keys(byGame).forEach(gid => {
       const w = gamesById[gid]?.Winner_Deck;
       const oppsInGame = [...new Set(perf.filter(p => p.GameID === gid && p.Deck !== targetName).map(p=>p.Deck))];
