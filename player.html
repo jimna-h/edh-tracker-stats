@@ -497,11 +497,13 @@ function isDeckActive(activeDecksByOwner, owner, deckName){
 
 // Toggles a "show inactive" class on the given container and updates the
 // triggering button's label. Called from inline onclick handlers.
-function toggleInactive(containerId, btn, hiddenCount){
+function toggleInactive(containerId, btn, hiddenCount, showLabel, hideLabel){
   const el = document.getElementById(containerId);
   if (!el) return;
   const showing = el.classList.toggle('show-inactive');
-  btn.textContent = showing ? 'Hide inactive decks' : ('Show inactive decks (' + hiddenCount + ')');
+  btn.textContent = showing
+    ? (hideLabel || 'Hide inactive decks')
+    : (showLabel || ('Show inactive decks (' + hiddenCount + ')'));
 }
 
 function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
@@ -585,6 +587,12 @@ async function renderAsync(gamesData, perfData){
     p.SeatNum = parseFloat(field(p, pH, 'Seat_Position')) || null;
     p.ArtURL = field(p, pH, 'Art_URL', 'ArtURL') || '';
     p.gameEndTurn = gamesById[p.GameID]?.End_Turn ?? null;
+    // Owner/Color_ID had been read via direct property access elsewhere
+    // (rows.find(r=>r.Owner), p.Color_ID) instead of the tolerant field()
+    // lookup everything else here uses — normalizing them once, here, means
+    // every downstream direct access benefits without hunting down each site.
+    p.Owner = field(p, pH, 'Owner', 'Deck_Owner', 'DeckOwner') || p.Owner || '';
+    p.Color_ID = field(p, pH, 'Color_ID', 'Colors', 'ColorID', 'Color') || p.Color_ID || '';
   });
 
   // Guest players don't count toward any stats: excluding their rows here
@@ -605,8 +613,12 @@ async function renderAsync(gamesData, perfData){
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
   const { map: pfpMap, activeDecksByOwner } = await fetchPlayerPfps(players);
   const avgTurn = mean(games.map(g=>g.End_Turn).filter(x=>x));
-  const longest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a, gamesNonGuestWin[0]);
-  const shortest = gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a, gamesNonGuestWin[0]);
+  // Null (not undefined-from-empty-reduce) when every logged game so far was
+  // won by Guest — the template below must check for this rather than assume
+  // longest/shortest are always real game objects, or it throws on .End_Turn
+  // and blanks the whole page.
+  const longest = gamesNonGuestWin.length ? gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||0) > (a.End_Turn||0) ? b : a) : null;
+  const shortest = gamesNonGuestWin.length ? gamesNonGuestWin.reduce((a,b)=> (b.End_Turn||999) < (a.End_Turn||999) ? b : a) : null;
   const dateSorted = [...games].filter(g=>g.Timestamp).sort((a,b)=> new Date(a.Timestamp) - new Date(b.Timestamp));
   const dateSortedNonGuestWin = dateSorted.filter(g => !isGuest(g.Winner_Player));
   const mostRecent = dateSortedNonGuestWin[dateSortedNonGuestWin.length-1];
@@ -631,7 +643,7 @@ async function renderAsync(gamesData, perfData){
   const seatTotals = {1:0,2:0,3:0,4:0};
   perf.forEach(p => { if (seatTotals[p.SeatNum] !== undefined) seatTotals[p.SeatNum]++; });
   const seatWins = {1:0,2:0,3:0,4:0};
-  games.forEach(g => { const s = parseFloat(g.Winner_Seat); if (seatWins[s] !== undefined) seatWins[s]++; });
+  gamesNonGuestWin.forEach(g => { const s = parseFloat(g.Winner_Seat); if (seatWins[s] !== undefined) seatWins[s]++; }); // numerator must match seatTotals' guest-filtered denominator (perf), or a Guest win inflates that seat's rate
 
   // ---------- decks ----------
   const deckStats = decks.map(name => {
@@ -860,7 +872,7 @@ async function renderAsync(gamesData, perfData){
             <div><h2>Decks piloted</h2><div class="section-desc">${targetName}'s own record with each active, owned deck.</div></div>
             <div class="idx">04 / DECKS</div>
           </div>
-          ${hiddenDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('decksPilotedList', this, ${hiddenDeckCount})">Show inactive decks (${hiddenDeckCount})</button>` : ''}
+          ${hiddenDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('decksPilotedList', this, ${hiddenDeckCount}, 'Show inactive/unowned decks (${hiddenDeckCount})', 'Hide inactive/unowned decks')">Show inactive/unowned decks (${hiddenDeckCount})</button>` : ''}
           <div class="panel rowlist with-thumbs" id="decksPilotedList">
             ${decksPiloted.map((d,i) => `
               <a href="${deckUrl(d.name)}" class="r" style="text-decoration:none;color:inherit;"${d.hide ? ' data-inactive="1"' : ''}>
