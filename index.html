@@ -615,13 +615,34 @@ async function renderAsync(gamesData, perfData){
     const gamesPlayed = rows.length;
     const survivalTurns = rows.map(p=>p.turnDiedNum).filter(x=>x);
     const winTurns = rows.filter(r=>r.isWin).map(r=>r.gameEndTurn).filter(x=>x!=null);
+    const allTurns = rows.map(r=>r.gameEndTurn).filter(x=>x!=null);
     const deckSet = new Set(rows.map(r=>r.Deck).filter(Boolean));
+    const openingLands = rows.map(r=>r.Opening_Lands).filter(x=>x!=null);
+    const manaRows = rows.map(r => {
+      const turnsAlive = r.isWin ? r.gameEndTurn : r.turnDiedNum;
+      const manaTotal = (r.End_Lands!=null || r.End_Rocks!=null || r.End_Dorks!=null) ? (r.End_Lands||0)+(r.End_Rocks||0)+(r.End_Dorks||0) : null;
+      return (manaTotal!=null && turnsAlive) ? manaTotal/turnsAlive : null;
+    }).filter(x=>x!=null);
+    // Color devotion: of this player's distinct decks, what fraction include
+    // each color in their identity — feeds the Highest/Lowest Devotion awards.
+    const deckColorList = [...deckSet].map(dn => rows.find(r=>r.Deck===dn)?.Color_ID || '');
+    const devotion = {};
+    if (deckSet.size){
+      ['W','U','B','R','G'].forEach(c => {
+        const withColor = deckColorList.filter(id => id.toUpperCase().includes(c)).length;
+        devotion[c] = withColor / deckSet.size;
+      });
+    }
     return {
       name, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgSurvival: mean(survivalTurns),
       avgWinTurn: mean(winTurns),
-      deckCount: deckSet.size
+      avgGameLen: mean(allTurns),
+      avgOpeningLands: mean(openingLands),
+      avgManaPerTurn: mean(manaRows),
+      deckCount: deckSet.size,
+      devotion
     };
   }).filter(p => p.gamesPlayed > 0)
     // Tie-break priority: win % → wins → avg win turn (fewer is better) → name.
@@ -715,6 +736,50 @@ async function renderAsync(gamesData, perfData){
 
   // ---------- awards ----------
   const noWinPlayers = playerStats.filter(p => p.wins === 0 && p.gamesPlayed >= 2).sort((a,b)=>b.gamesPlayed-a.gamesPlayed)[0];
+
+  // ---------- more awards ----------
+  // Biggest Threat: the player whose average loss comes furthest before a
+  // typical game would've ended — i.e. the table keeps taking them out early.
+  const biggestThreat = playerStats
+    .filter(p => p.gamesPlayed >= 2 && p.avgSurvival != null && p.avgGameLen != null)
+    .map(p => ({ ...p, threatGap: p.avgGameLen - p.avgSurvival }))
+    .sort((a,b) => b.threatGap - a.threatGap || a.name.localeCompare(b.name))[0];
+
+  // Highest/Lowest Devotion: the (player, color) pair with the highest and
+  // lowest non-zero share of that player's distinct decks running that color.
+  // Requires 2+ distinct decks so a single deck can't trivially claim 100%.
+  const devotionPairs = [];
+  playerStats.filter(p => p.deckCount >= 2).forEach(p => {
+    ['W','U','B','R','G'].forEach(c => {
+      const frac = p.devotion[c];
+      if (frac > 0) devotionPairs.push({ name: p.name, color: c, frac, deckCount: p.deckCount });
+    });
+  });
+  const highestDevotion = [...devotionPairs].sort((a,b) => b.frac - a.frac || b.deckCount - a.deckCount || a.name.localeCompare(b.name))[0];
+  const lowestDevotion = [...devotionPairs].sort((a,b) => a.frac - b.frac || b.deckCount - a.deckCount || a.name.localeCompare(b.name))[0];
+
+  // Speedrunner: fastest average win turn among players with at least 2 wins.
+  const speedrunner = playerStats
+    .filter(p => p.wins >= 2 && p.avgWinTurn != null)
+    .sort((a,b) => a.avgWinTurn - b.avgWinTurn || a.name.localeCompare(b.name))[0];
+
+  // Marathonner: the inverse of Speedrunner — slowest average win turn.
+  const marathonner = playerStats
+    .filter(p => p.wins >= 2 && p.avgWinTurn != null)
+    .sort((a,b) => b.avgWinTurn - a.avgWinTurn || a.name.localeCompare(b.name))[0];
+
+  // Land Baron / Riskiest Keeps: highest / lowest average opening hand lands.
+  const landBaron = playerStats
+    .filter(p => p.gamesPlayed >= 2 && p.avgOpeningLands != null)
+    .sort((a,b) => b.avgOpeningLands - a.avgOpeningLands || a.name.localeCompare(b.name))[0];
+  const riskiestKeeps = playerStats
+    .filter(p => p.gamesPlayed >= 2 && p.avgOpeningLands != null)
+    .sort((a,b) => a.avgOpeningLands - b.avgOpeningLands || a.name.localeCompare(b.name))[0];
+
+  // Green Player: highest average mana development (lands+rocks+dorks per turn) — named for the ramp color, not deck color.
+  const greenPlayer = playerStats
+    .filter(p => p.gamesPlayed >= 2 && p.avgManaPerTurn != null)
+    .sort((a,b) => b.avgManaPerTurn - a.avgManaPerTurn || a.name.localeCompare(b.name))[0];
 
   // ---------- rivalries ----------
   const pairMap = {};
@@ -925,11 +990,11 @@ async function renderAsync(gamesData, perfData){
           <div class="v">${longest ? 'Turn ' + fmt1(longest.End_Turn) : '—'}</div>
           <div class="d">${longest ? longest.Winner_Player + ' with ' + longest.Winner_Deck : 'No non-guest wins logged yet'}</div>
         </div>
-        <div class="panel award-card">
-          <div class="k">Reigning champion</div>
-          <div class="v">${mostRecent ? mostRecent.Winner_Player : '—'}</div>
-          <div class="d">${mostRecent ? 'Won most recently with ' + mostRecent.Winner_Deck : ''}</div>
-        </div>
+        ${biggestThreat ? `<div class="panel award-card">
+          <div class="k">Biggest threat</div>
+          <div class="v">${biggestThreat.name}</div>
+          <div class="d">Taken out ${fmt1(biggestThreat.threatGap)} turns before games typically end</div>
+        </div>` : ''}
         ${noWinPlayers ? `<div class="panel award-card">
           <div class="k">Still chasing the first</div>
           <div class="v">${noWinPlayers.name}</div>
@@ -945,6 +1010,41 @@ async function renderAsync(gamesData, perfData){
           <div class="v">${playerStats.slice().sort((a,b)=>b.gamesPlayed-a.gamesPlayed)[0]?.name || '—'}</div>
           <div class="d">${playerStats.slice().sort((a,b)=>b.gamesPlayed-a.gamesPlayed)[0]?.gamesPlayed || 0} games played</div>
         </div>
+        ${highestDevotion ? `<div class="panel award-card">
+          <div class="k">Highest devotion</div>
+          <div class="v">${pipsHTML(highestDevotion.color)} ${highestDevotion.name}</div>
+          <div class="d">${pct(highestDevotion.frac)} of their decks run ${COLOR_NAMES[highestDevotion.color]}</div>
+        </div>` : ''}
+        ${lowestDevotion ? `<div class="panel award-card">
+          <div class="k">Lowest devotion</div>
+          <div class="v">${pipsHTML(lowestDevotion.color)} ${lowestDevotion.name}</div>
+          <div class="d">Just ${pct(lowestDevotion.frac)} of their decks run ${COLOR_NAMES[lowestDevotion.color]}</div>
+        </div>` : ''}
+        ${speedrunner ? `<div class="panel award-card">
+          <div class="k">Speedrunner</div>
+          <div class="v">${speedrunner.name}</div>
+          <div class="d">Averages a win by turn ${fmt1(speedrunner.avgWinTurn)}</div>
+        </div>` : ''}
+        ${marathonner ? `<div class="panel award-card">
+          <div class="k">Marathonner</div>
+          <div class="v">${marathonner.name}</div>
+          <div class="d">Averages a win on turn ${fmt1(marathonner.avgWinTurn)}</div>
+        </div>` : ''}
+        ${landBaron ? `<div class="panel award-card">
+          <div class="k">Land baron</div>
+          <div class="v">${landBaron.name}</div>
+          <div class="d">Averages ${fmt1(landBaron.avgOpeningLands)} lands in the opening hand</div>
+        </div>` : ''}
+        ${riskiestKeeps ? `<div class="panel award-card">
+          <div class="k">Riskiest keeps</div>
+          <div class="v">${riskiestKeeps.name}</div>
+          <div class="d">Averages just ${fmt1(riskiestKeeps.avgOpeningLands)} lands in the opening hand</div>
+        </div>` : ''}
+        ${greenPlayer ? `<div class="panel award-card">
+          <div class="k">Green player</div>
+          <div class="v">${greenPlayer.name}</div>
+          <div class="d">Develops ${fmt1(greenPlayer.avgManaPerTurn)} mana sources per turn</div>
+        </div>` : ''}
       </div>
     </div>
   </section>
