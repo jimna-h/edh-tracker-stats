@@ -145,6 +145,7 @@ section{ padding:64px 0; border-top:1px solid var(--line-soft); }
 }
 .bar-track{ height:6px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:10px; overflow:hidden; }
 .bar-fill{ height:100%; border-radius:999px; background:linear-gradient(90deg, var(--blue), var(--gold)); }
+.rowlist .r .bar-track{ grid-column: 1 / -1; margin-top:8px; }
 
 /* Deck art tiles */
 .deck-tile{
@@ -525,6 +526,29 @@ function pipsHTML(colorId){
 // would truncate the attribute early.
 function escUrl(u){ return String(u || '').replace(/"/g, '%22').replace(/'/g, '%27'); }
 
+// Dense competition ranking: items tied on the given key all share the same
+// rank number, and the next distinct value gets the very next integer
+// (1,1,1,1,1,2 — not 1,1,1,1,1,6). Returns an array of rank numbers aligned
+// to `items`, which must already be sorted so ties are adjacent.
+function rankItems(items, keyFn){
+  let rank = 0;
+  let prevKey = null;
+  return items.map((item, i) => {
+    const key = keyFn(item);
+    if (i === 0 || key !== prevKey) rank++;
+    prevKey = key;
+    return rank;
+  });
+}
+
+// Ascending comparator for "average win turn" tie-breaking where fewer turns
+// is better. null (nobody's won yet) sorts last, as if it were +Infinity.
+function turnCompareAsc(a, b){
+  const av = (a === null || a === undefined) ? Infinity : a;
+  const bv = (b === null || b === undefined) ? Infinity : b;
+  return av - bv;
+}
+
 // Links to the per-entity profile pages.
 function playerUrl(name){ return `player.html?name=${encodeURIComponent(name)}`; }
 function deckUrl(name){ return `deck.html?name=${encodeURIComponent(name)}`; }
@@ -629,15 +653,18 @@ async function renderAsync(gamesData, perfData){
     const wins = rows.filter(p => p.isWin).length;
     const gamesPlayed = rows.length;
     const survivalTurns = rows.map(p=>p.turnDiedNum).filter(x=>x);
+    const winTurns = rows.filter(r=>r.isWin).map(r=>r.gameEndTurn).filter(x=>x!=null);
     const deckSet = new Set(rows.map(r=>r.Deck).filter(Boolean));
     return {
       name, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgSurvival: mean(survivalTurns),
+      avgWinTurn: mean(winTurns),
       deckCount: deckSet.size
     };
   }).filter(p => p.gamesPlayed > 0)
-    .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
+    // Tie-break priority: win % → wins → avg win turn (fewer is better) → name.
+    .sort((a,b) => b.winRate - a.winRate || b.wins - a.wins || turnCompareAsc(a.avgWinTurn, b.avgWinTurn) || a.name.localeCompare(b.name));
 
   // ---------- seats ----------
   const seatTotals = {1:0,2:0,3:0,4:0};
@@ -687,7 +714,7 @@ async function renderAsync(gamesData, perfData){
       <section>
         <div class="wrap">
           <div class="grid" style="grid-template-columns:1fr;">
-            ${playerStats.map((p,i) => {
+            ${(() => { const ranks = rankItems(playerStats, p => [Math.round(p.winRate*10000), p.wins, p.avgWinTurn==null?'null':Math.round(p.avgWinTurn*100)].join('_')); return playerStats.map((p,i) => {
               const pfpUrl = pfpMap[p.name];
               const initial = (p.name || '?').trim().charAt(0).toUpperCase();
               const avatarStyle = pfpUrl ? `background-image:url('${escUrl(pfpUrl)}');background-size:cover;background-position:center;` : '';
@@ -695,13 +722,13 @@ async function renderAsync(gamesData, perfData){
               <a href="${playerUrl(p.name)}" class="panel leader-card" style="text-decoration:none;">
                 <div class="life-badge" style="${avatarStyle}">${pfpUrl ? '' : `<div class="n">${initial}</div>`}</div>
                 <div class="leader-info">
-                  <div class="leader-name"><span class="rank-tag">#${i+1}</span>${p.name}</div>
+                  <div class="leader-name"><span class="rank-tag">#${ranks[i]}</span>${p.name}</div>
                   <div class="leader-pct">${pct(p.winRate)}</div>
                   <div class="leader-sub">${p.wins}/${p.gamesPlayed} games</div>
                   <div class="bar-track"><div class="bar-fill" style="width:${p.winRate*100}%"></div></div>
                 </div>
               </a>`;
-            }).join('')}
+            }).join(''); })()}
           </div>
         </div>
       </section>
@@ -874,17 +901,18 @@ async function renderAsync(gamesData, perfData){
           </div>
           ${hiddenDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('decksPilotedList', this, ${hiddenDeckCount}, 'Show inactive/unowned decks (${hiddenDeckCount})', 'Hide inactive/unowned decks')">Show inactive/unowned decks (${hiddenDeckCount})</button>` : ''}
           <div class="panel rowlist with-thumbs" id="decksPilotedList">
-            ${decksPiloted.map((d,i) => `
+            ${(() => { const ranks = rankItems(decksPiloted, d => d.games); return decksPiloted.map((d,i) => `
               <a href="${deckUrl(d.name)}" class="r" style="text-decoration:none;color:inherit;"${d.hide ? ' data-inactive="1"' : ''}>
-                <div class="pos">${i+1}</div>
+                <div class="pos">${ranks[i]}</div>
                 ${d.artUrl ? `<img class="deck-thumb" src="${escUrl(d.artUrl)}" alt="" style="width:42px;height:42px;min-width:42px;max-width:42px;object-fit:cover;border-radius:8px;">` : `<div class="deck-thumb" style="width:42px;height:42px;min-width:42px;"></div>`}
                 <div class="main">
                   <div class="name">${pipsHTML(deckColorById[d.name])} &nbsp;${d.name}</div>
                   <div class="meta">${d.games} game${d.games===1?'':'s'}${d.borrowed ? ' · not owned' : ''}</div>
                 </div>
                 <div class="stat"><div class="big">${pct(d.winRate)}</div><div class="small">${d.wins}W</div></div>
+                <div class="bar-track"><div class="bar-fill" style="width:${d.winRate*100}%"></div></div>
               </a>
-            `).join('') || '<div class="empty-note">No decks logged yet.</div>'}
+            `).join('') || '<div class="empty-note">No decks logged yet.</div>'; })()}
           </div>
         </div>
       </section>
@@ -896,19 +924,20 @@ async function renderAsync(gamesData, perfData){
             <div class="idx">05 / HEAD-TO-HEAD</div>
           </div>
           <div class="panel rowlist">
-            ${headToHead.map((o,i) => {
+            ${(() => { const ranks = rankItems(headToHead, o => o.games); return headToHead.map((o,i) => {
               const decisive = o.myWins + o.theirWins;
               const myRate = decisive ? o.myWins/decisive : null;
               return `
               <a href="${playerUrl(o.name)}" class="r" style="text-decoration:none;color:inherit;">
-                <div class="pos">${i+1}</div>
+                <div class="pos">${ranks[i]}</div>
                 <div class="main">
                   <div class="name">${o.name}</div>
                   <div class="meta">${o.games} shared game${o.games===1?'':'s'} · ${decisive} decisive</div>
                 </div>
                 <div class="stat"><div class="big">${myRate!=null ? pct(myRate) : '—'}</div><div class="small">${o.myWins}-${o.theirWins}</div></div>
+                ${myRate!=null ? `<div class="bar-track"><div class="bar-fill" style="width:${myRate*100}%"></div></div>` : ''}
               </a>`;
-            }).join('') || '<div class="empty-note">No shared games yet.</div>'}
+            }).join('') || '<div class="empty-note">No shared games yet.</div>'; })()}
           </div>
         </div>
       </section>
