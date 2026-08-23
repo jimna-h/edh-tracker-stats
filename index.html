@@ -621,7 +621,7 @@ async function renderAsync(gamesData, perfData){
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgWinTurn: mean(winTurns),
       colorId, artUrl,
-      isActive: isDeckActive(activeDecksByOwner, owner, name)
+      isActive: isDeckActive(activeDecksByOwner, owner, name) && owner.trim().toLowerCase() !== 'precons'
     };
   }).filter(d => d.gamesPlayed > 0)
     .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
@@ -839,14 +839,13 @@ async function renderAsync(gamesData, perfData){
             <div class="hbar-val">${pct(c.winRate)}</div>
           </div>`).join('')}
         </div>
-        <div class="panel rowlist">
-          ${colorStats.map((c,i) => `
-            <div class="r" style="grid-template-columns:28px 1fr auto;">
-              <div class="pos">${i+1}</div>
-              <div class="main">${pipsHTML(c.id)} &nbsp;${COLOR_NAMES[c.id] || c.id}</div>
-              <div class="stat"><div class="big">${pct(c.winRate)}</div><div class="small">${c.wins}/${c.games}</div></div>
-            </div>
-          `).join('')}
+        <div class="panel" style="padding:22px 24px;">
+          <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By individual color</h3>
+          ${colorStats.map(c => `<div class="hbar-row">
+            <div class="hbar-label">${pipsHTML(c.id)} &nbsp;${COLOR_NAMES[c.id] || c.id}</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
+            <div class="hbar-val">${pct(c.winRate)}</div>
+          </div>`).join('')}
         </div>
       </div>
     </div>
@@ -855,7 +854,7 @@ async function renderAsync(gamesData, perfData){
   <section id="mulligans">
     <div class="wrap">
       <div class="section-head">
-        <div><h2>Mulligan habits</h2><div class="section-desc">Which mulligan rule the table used, per game — applies to everyone at the table, not just the winner.</div></div>
+        <div><h2>Mulligan habits</h2><div class="section-desc">Which mulligan rule the table used, per game.</div></div>
         <div class="idx">05 / MULLIGANS</div>
       </div>
       <div class="panel" style="padding:24px 24px 10px;">
