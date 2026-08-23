@@ -368,6 +368,7 @@ const PLAYER_TAB = 'Player_Performance';
 const PFP_SHEET_ID = '1HfTUoLol3h1DmDeWTDsUqYTjq99SV9NGi-CmB3Wk89g';
 
 const MANA_COLORS = { W:'#F4EFDD', U:'#3E7FC1', B:'#4A4750', R:'#B8402F', G:'#3C7A4C', C:'#9A958A' };
+const COLOR_NAMES = { W:'White', U:'Blue', B:'Black', R:'Red', G:'Green', C:'Colorless' };
 
 function gvizUrl(sheetName, sheetId){
   return `https://docs.google.com/spreadsheets/d/${sheetId || SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
@@ -776,6 +777,25 @@ async function renderAsync(gamesData, perfData){
     }).filter(x=>x!=null);
     const avgManaPerTurn = mean(manaRows);
 
+    // Facing [color]: this deck's win rate in games where at least one
+    // opponent's deck ran that color.
+    const oppColorMap = {};
+    rows.forEach(r => {
+      const oppColors = new Set();
+      perf.filter(p => p.GameID === r.GameID && p.Deck !== targetName).forEach(o => {
+        (o.Color_ID||'').toUpperCase().split('').forEach(ch => { if ('WUBRG'.includes(ch)) oppColors.add(ch); });
+      });
+      oppColors.forEach(c => {
+        if (!oppColorMap[c]) oppColorMap[c] = { games:0, wins:0 };
+        oppColorMap[c].games++;
+        if (r.isWin) oppColorMap[c].wins++;
+      });
+    });
+    const colorAgainst = ['W','U','B','R','G'].map(c => {
+      const v = oppColorMap[c];
+      return v ? { color:c, games:v.games, winRate: v.wins/v.games } : null;
+    }).filter(Boolean);
+
     // pilots (who has played this deck, in case ownership/piloting shifted)
     const pilotNames = [...new Set(rows.map(r=>r.Player).filter(Boolean))];
     const pilots = pilotNames.map(pn => {
@@ -874,11 +894,27 @@ async function renderAsync(gamesData, perfData){
         </div>
       </section>
 
+      <section id="colormatch">
+        <div class="wrap">
+          <div class="section-head">
+            <div><h2>Color matchups</h2><div class="section-desc">${targetName}'s win rate facing each color.</div></div>
+            <div class="idx">03 / COLORS</div>
+          </div>
+          <div class="panel" style="padding:20px 20px 8px;">
+            ${colorAgainst.map(c => `<div class="hbar-row">
+              <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
+              <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
+              <div class="hbar-val">${pct(c.winRate)}</div>
+            </div>`).join('') || '<div class="empty-note">No opponent color data yet.</div>'}
+          </div>
+        </div>
+      </section>
+
       <section id="mana">
         <div class="wrap">
           <div class="section-head">
             <div><h2>Mana development</h2><div class="section-desc">Total mana sources (lands + rocks + dorks) per turn survived.</div></div>
-            <div class="idx">03 / MANA</div>
+            <div class="idx">04 / MANA</div>
           </div>
           <div class="grid grid-3">
             <div class="hero-stat"><div class="num">${fmt1(avgManaPerTurn)}</div><div class="lbl">Mana / turn</div></div>
@@ -890,7 +926,7 @@ async function renderAsync(gamesData, perfData){
         <div class="wrap">
           <div class="section-head">
             <div><h2>Pilots</h2><div class="section-desc">Everyone who's played ${targetName}.</div></div>
-            <div class="idx">04 / PILOTS</div>
+            <div class="idx">05 / PILOTS</div>
           </div>
           <div class="panel rowlist">
             ${(() => { const ranks = rankItems(pilots, p => p.games); return pilots.map((p,i) => `
@@ -912,7 +948,7 @@ async function renderAsync(gamesData, perfData){
         <div class="wrap">
           <div class="section-head">
             <div><h2>Rivalries</h2><div class="section-desc">Decisive record against every active deck ${targetName} has shared a table with.</div></div>
-            <div class="idx">05 / RIVALRIES</div>
+            <div class="idx">06 / RIVALRIES</div>
           </div>
           ${hiddenRivalryCount ? `<button class="inactive-toggle" onclick="toggleInactive('rivalriesList', this, ${hiddenRivalryCount})">Show inactive decks (${hiddenRivalryCount})</button>` : ''}
           <div class="panel rowlist with-thumbs" id="rivalriesList">
@@ -939,7 +975,7 @@ async function renderAsync(gamesData, perfData){
         <div class="wrap">
           <div class="section-head">
             <div><h2>Recent games</h2><div class="section-desc">Most recent games first.</div></div>
-            <div class="idx">06 / RECENT</div>
+            <div class="idx">07 / RECENT</div>
           </div>
           <div class="panel game-log">
             ${recentGames.map(g => {
