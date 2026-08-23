@@ -145,6 +145,7 @@ section{ padding:64px 0; border-top:1px solid var(--line-soft); }
 }
 .bar-track{ height:6px; border-radius:999px; background:rgba(255,255,255,0.08); margin-top:10px; overflow:hidden; }
 .bar-fill{ height:100%; border-radius:999px; background:linear-gradient(90deg, var(--blue), var(--gold)); }
+.rowlist .r .bar-track{ grid-column: 1 / -1; margin-top:8px; }
 
 /* Deck art tiles */
 .deck-tile{
@@ -528,6 +529,29 @@ function pipsHTML(colorId){
 // would truncate the attribute early.
 function escUrl(u){ return String(u || '').replace(/"/g, '%22').replace(/'/g, '%27'); }
 
+// Dense competition ranking: items tied on the given key all share the same
+// rank number, and the next distinct value gets the very next integer
+// (1,1,1,1,1,2 — not 1,1,1,1,1,6). Returns an array of rank numbers aligned
+// to `items`, which must already be sorted so ties are adjacent.
+function rankItems(items, keyFn){
+  let rank = 0;
+  let prevKey = null;
+  return items.map((item, i) => {
+    const key = keyFn(item);
+    if (i === 0 || key !== prevKey) rank++;
+    prevKey = key;
+    return rank;
+  });
+}
+
+// Ascending comparator for "average win turn" tie-breaking where fewer turns
+// is better. null (nobody's won yet) sorts last, as if it were +Infinity.
+function turnCompareAsc(a, b){
+  const av = (a === null || a === undefined) ? Infinity : a;
+  const bv = (b === null || b === undefined) ? Infinity : b;
+  return av - bv;
+}
+
 // Links to the per-entity profile pages.
 function playerUrl(name){ return `player.html?name=${encodeURIComponent(name)}`; }
 function deckUrl(name){ return `deck.html?name=${encodeURIComponent(name)}`; }
@@ -665,7 +689,8 @@ async function renderAsync(gamesData, perfData){
       isActive: isDeckActive(activeDecksByOwner, owner, name)
     };
   }).filter(d => d.gamesPlayed > 0)
-    .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
+    // Tie-break priority: win % → wins → avg win turn (fewer is better) → name.
+    .sort((a,b) => b.winRate - a.winRate || b.wins - a.wins || turnCompareAsc(a.avgWinTurn, b.avgWinTurn) || a.name.localeCompare(b.name));
   // deckStats (from the normalize block above) already carries colorId/owner/artUrl/isActive.
   const deckColorById = Object.fromEntries(deckStats.map(d => [d.name, d.colorId]));
   const deckArtById = Object.fromEntries(deckStats.map(d => [d.name, d.artUrl]));
@@ -693,13 +718,13 @@ async function renderAsync(gamesData, perfData){
         <div class="wrap">
           ${inactiveDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('deckDirGrid', this, ${inactiveDeckCount})">Show inactive decks (${inactiveDeckCount})</button>` : ''}
           <div class="grid grid-3" id="deckDirGrid">
-            ${deckStats.map((d,i) => {
+            ${(() => { const ranks = rankItems(deckStats, d => [Math.round(d.winRate*10000), d.wins, d.avgWinTurn==null?'null':Math.round(d.avgWinTurn*100)].join('_')); return deckStats.map((d,i) => {
               const hasArt = !!d.artUrl;
               const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
               return `
               <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;"${d.isActive ? '' : ' data-inactive="1"'}>
                 <div class="tile-top">
-                  <span class="tile-pos">#${i+1}</span>
+                  <span class="tile-pos">#${ranks[i]}</span>
                   <span class="tile-pct">${pct(d.winRate)}</span>
                 </div>
                 <div class="tile-bottom">
@@ -707,7 +732,7 @@ async function renderAsync(gamesData, perfData){
                   <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}</div>
                 </div>
               </a>`;
-            }).join('')}
+            }).join(''); })()}
           </div>
         </div>
       </section>
@@ -868,16 +893,17 @@ async function renderAsync(gamesData, perfData){
             <div class="idx">04 / PILOTS</div>
           </div>
           <div class="panel rowlist">
-            ${pilots.map((p,i) => `
+            ${(() => { const ranks = rankItems(pilots, p => p.games); return pilots.map((p,i) => `
               <a href="${playerUrl(p.name)}" class="r" style="text-decoration:none;color:inherit;">
-                <div class="pos">${i+1}</div>
+                <div class="pos">${ranks[i]}</div>
                 <div class="main">
                   <div class="name">${p.name}</div>
                   <div class="meta">${p.games} game${p.games===1?'':'s'}</div>
                 </div>
                 <div class="stat"><div class="big">${pct(p.winRate)}</div><div class="small">${p.wins}W</div></div>
+                <div class="bar-track"><div class="bar-fill" style="width:${p.winRate*100}%"></div></div>
               </a>
-            `).join('') || '<div class="empty-note">No pilots logged yet.</div>'}
+            `).join('') || '<div class="empty-note">No pilots logged yet.</div>'; })()}
           </div>
         </div>
       </section>
@@ -890,20 +916,21 @@ async function renderAsync(gamesData, perfData){
           </div>
           ${hiddenRivalryCount ? `<button class="inactive-toggle" onclick="toggleInactive('rivalriesList', this, ${hiddenRivalryCount})">Show inactive decks (${hiddenRivalryCount})</button>` : ''}
           <div class="panel rowlist with-thumbs" id="rivalriesList">
-            ${rivalries.map((o,i) => {
+            ${(() => { const ranks = rankItems(rivalries, o => o.games); return rivalries.map((o,i) => {
               const decisive = o.myWins + o.theirWins;
               const myRate = decisive ? o.myWins/decisive : null;
               return `
               <a href="${deckUrl(o.name)}" class="r" style="text-decoration:none;color:inherit;"${o.hide ? ' data-inactive="1"' : ''}>
-                <div class="pos">${i+1}</div>
+                <div class="pos">${ranks[i]}</div>
                 ${o.artUrl ? `<img class="deck-thumb" src="${escUrl(o.artUrl)}" alt="" style="width:42px;height:42px;min-width:42px;max-width:42px;object-fit:cover;border-radius:8px;">` : `<div class="deck-thumb" style="width:42px;height:42px;min-width:42px;"></div>`}
                 <div class="main">
                   <div class="name">${pipsHTML(deckColorById[o.name])} &nbsp;${o.name}</div>
                   <div class="meta">${o.games} shared game${o.games===1?'':'s'} · ${decisive} decisive</div>
                 </div>
                 <div class="stat"><div class="big">${myRate!=null ? pct(myRate) : '—'}</div><div class="small">${o.myWins}-${o.theirWins}</div></div>
+                ${myRate!=null ? `<div class="bar-track"><div class="bar-fill" style="width:${myRate*100}%"></div></div>` : ''}
               </a>`;
-            }).join('') || '<div class="empty-note">No shared games yet.</div>'}
+            }).join('') || '<div class="empty-note">No shared games yet.</div>'; })()}
           </div>
         </div>
       </section>
