@@ -406,6 +406,7 @@ async function fetchSheet(name, sheetId){
 async function fetchPlayerPfps(playerNames){
   const map = {};
   const activeDecksByOwner = {};
+  const ownedDecksByOwner = {};
   const deckColorFromSheet = {};
   const debug = [];
   await Promise.all(playerNames.map(async name => {
@@ -430,20 +431,28 @@ async function fetchPlayerPfps(playerNames){
         if (pfpUrl && pfpUrl.trim()) map[name] = pfpUrl.trim();
       }
       const activeSet = new Set();
+      const ownedList = [];
       rows.forEach(r => {
         const dn = field(r, headerByNorm, 'Deck Name', 'DeckName', 'Deck');
         if (!dn || dn.trim().toLowerCase() === 'pfp') return;
         const excludeRaw = field(r, headerByNorm, 'Exclude');
         const excluded = (excludeRaw || '').trim().toUpperCase() === 'TRUE';
-        if (!excluded) activeSet.add(normKey(dn));
+        const colorId = field(r, headerByNorm, 'Color_ID', 'Colors', 'ColorID', 'Color') || '';
+        if (!excluded){
+          activeSet.add(normKey(dn));
+          // Full record (original name + color), independent of whether this
+          // player has ever actually logged a game with it — "decks owned"
+          // must reflect the sheet itself, not just decks with game history.
+          ownedList.push({ name: dn.trim(), colorId: colorId.trim() });
+        }
         // This player-owned tab is the authoritative deck registry — its
         // Color_ID should win over whatever got typed into Player_Performance
         // on any given game log row (which is re-entered by hand every game
         // and prone to drift/typos for the same deck over time).
-        const colorId = field(r, headerByNorm, 'Color_ID', 'Colors', 'ColorID', 'Color');
-        if (dn && colorId && colorId.trim()) deckColorFromSheet[normKey(dn)] = colorId.trim();
+        if (dn && colorId.trim()) deckColorFromSheet[normKey(dn)] = colorId.trim();
       });
       activeDecksByOwner[name] = activeSet;
+      ownedDecksByOwner[name] = ownedList;
       rec.result = 'OK';
       debug.push(rec);
     } catch(e){
@@ -451,7 +460,7 @@ async function fetchPlayerPfps(playerNames){
       debug.push(rec);
     }
   }));
-  return { map, activeDecksByOwner, deckColorFromSheet, debug };
+  return { map, activeDecksByOwner, ownedDecksByOwner, deckColorFromSheet, debug };
 }
 
 // A deck instance is "active" if its owner's tab lists it (un-excluded).
