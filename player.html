@@ -814,6 +814,16 @@ async function renderAsync(gamesData, perfData){
     }).sort((a,b)=> b.games - a.games);
     const hiddenDeckCount = decksPiloted.filter(d => d.hide).length;
 
+    // Color frequency: of this player's own active decks, what share run each
+    // color — the full breakdown behind the Highest/Lowest Devotion awards on
+    // the overview page. Matches the same active+owned decks shown by default
+    // above (borrowed/inactive decks excluded unless toggled visible there too).
+    const ownedActiveDecks = decksPiloted.filter(d => !d.hide);
+    const colorFrequency = ['W','U','B','R','G'].map(c => {
+      const withColor = ownedActiveDecks.filter(d => (deckColorById[d.name]||'').toUpperCase().includes(c)).length;
+      return { color:c, count: withColor, total: ownedActiveDecks.length, frac: ownedActiveDecks.length ? withColor/ownedActiveDecks.length : 0 };
+    }).sort((a,b) => b.frac - a.frac || a.color.localeCompare(b.color));
+
     // head-to-head vs every opponent shared
     const byGame = {};
     rows.forEach(r => { byGame[r.GameID] = true; });
@@ -972,11 +982,27 @@ async function renderAsync(gamesData, perfData){
         </div>
       </section>
 
+      <section id="colorfreq">
+        <div class="wrap">
+          <div class="section-head">
+            <div><h2>Deck colors</h2><div class="section-desc">Of ${targetName}'s ${ownedActiveDecks.length} active deck${ownedActiveDecks.length===1?'':'s'}, how many run each color.</div></div>
+            <div class="idx">06 / DECK COLORS</div>
+          </div>
+          <div class="panel" style="padding:20px 20px 8px;">
+            ${colorFrequency.map(c => `<div class="hbar-row">
+              <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
+              <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
+              <div class="hbar-val">${c.count}/${c.total}</div>
+            </div>`).join('') || '<div class="empty-note">No decks logged yet.</div>'}
+          </div>
+        </div>
+      </section>
+
       <section id="h2h">
         <div class="wrap">
           <div class="section-head">
             <div><h2>Head-to-head</h2><div class="section-desc">Decisive record against every opponent ${targetName} has shared a table with.</div></div>
-            <div class="idx">06 / HEAD-TO-HEAD</div>
+            <div class="idx">07 / HEAD-TO-HEAD</div>
           </div>
           <div class="panel rowlist">
             ${(() => { const ranks = rankItems(headToHead, o => o.games); return headToHead.map((o,i) => {
@@ -1001,7 +1027,7 @@ async function renderAsync(gamesData, perfData){
         <div class="wrap">
           <div class="section-head">
             <div><h2>Recent games</h2><div class="section-desc">Most recent games first.</div></div>
-            <div class="idx">07 / RECENT</div>
+            <div class="idx">08 / RECENT</div>
           </div>
           <div class="panel game-log">
             ${recentGames.map(g => {
