@@ -824,6 +824,22 @@ async function renderAsync(gamesData, perfData){
       return { color:c, count: withColor, total: ownedActiveDecks.length, frac: ownedActiveDecks.length ? withColor/ownedActiveDecks.length : 0 };
     }).sort((a,b) => b.frac - a.frac || a.color.localeCompare(b.color));
 
+    // By color count: how many of this player's decks are mono, 2-color,
+    // 3-color, etc. — same bucketing as the overview's Color identity section,
+    // just counted over decks instead of games.
+    const colorCountBuckets = {};
+    ownedActiveDecks.forEach(d => {
+      const id = (deckColorById[d.name] || '').toUpperCase();
+      const n = new Set(id.replace(/[^WUBRG]/g,'').split('')).size;
+      const key = n === 0 ? 'Colorless' : n===1 ? 'Mono' : n===2 ? '2-Color' : n===3 ? '3-Color' : n===4 ? '4-Color' : '5-Color';
+      colorCountBuckets[key] = (colorCountBuckets[key]||0) + 1;
+    });
+    const colorCountOrder = ['Colorless','Mono','2-Color','3-Color','4-Color','5-Color'];
+    const deckColorCountStats = colorCountOrder.filter(k=>colorCountBuckets[k]).map(k => ({
+      label: k, count: colorCountBuckets[k], total: ownedActiveDecks.length,
+      frac: ownedActiveDecks.length ? colorCountBuckets[k]/ownedActiveDecks.length : 0
+    }));
+
     // head-to-head vs every opponent shared
     const byGame = {};
     rows.forEach(r => { byGame[r.GameID] = true; });
@@ -985,15 +1001,26 @@ async function renderAsync(gamesData, perfData){
       <section id="colorfreq">
         <div class="wrap">
           <div class="section-head">
-            <div><h2>Deck colors</h2><div class="section-desc">Of ${targetName}'s ${ownedActiveDecks.length} active deck${ownedActiveDecks.length===1?'':'s'}, how many run each color.</div></div>
+            <div><h2>Deck colors</h2><div class="section-desc">Of ${targetName}'s ${ownedActiveDecks.length} active deck${ownedActiveDecks.length===1?'':'s'}: how many colors each deck runs, and how many run each individual color.</div></div>
             <div class="idx">06 / DECK COLORS</div>
           </div>
-          <div class="panel" style="padding:20px 20px 8px;">
-            ${colorFrequency.map(c => `<div class="hbar-row">
-              <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
-              <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
-              <div class="hbar-val">${c.count}/${c.total}</div>
-            </div>`).join('') || '<div class="empty-note">No decks logged yet.</div>'}
+          <div class="grid grid-2">
+            <div class="panel" style="padding:22px 24px;">
+              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By color count</h3>
+              ${deckColorCountStats.map(c => `<div class="hbar-row">
+                <div class="hbar-label">${c.label}</div>
+                <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
+                <div class="hbar-val">${c.count}/${c.total}</div>
+              </div>`).join('') || '<div class="empty-note">No decks logged yet.</div>'}
+            </div>
+            <div class="panel" style="padding:22px 24px;">
+              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By individual color</h3>
+              ${colorFrequency.map(c => `<div class="hbar-row">
+                <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
+                <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
+                <div class="hbar-val">${c.count}/${c.total}</div>
+              </div>`).join('') || '<div class="empty-note">No decks logged yet.</div>'}
+            </div>
           </div>
         </div>
       </section>
