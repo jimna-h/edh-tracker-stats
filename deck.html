@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>The Table — Player Profile</title>
+<title>The Table — Deck Profile</title>
 <style>
 :root{
   --bg:#000000;
@@ -278,7 +278,10 @@ footer .refresh-btn:hover{ background:var(--panel-hover); }
 }
 
 /* ---------- Profile page (player.html / deck.html) ---------- */
-.profile-header{ display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:56px 24px 36px; max-width:1180px; margin:0 auto; }
+.profile-header{
+  display:flex; align-items:center; gap:22px; flex-wrap:wrap;
+  padding:56px 24px 36px; max-width:1180px; margin:0 auto;
+}
 .profile-avatar{
   width:96px; height:96px; border-radius:50%; flex:none; overflow:hidden;
   border:3px solid var(--gold); background:rgba(255,255,255,0.06);
@@ -336,7 +339,7 @@ footer .refresh-btn:hover{ background:var(--panel-hover); }
 <div id="app">
   <div class="state-screen" id="loadingScreen">
     <div class="spinner"></div>
-    <h2>Pulling up the profile…</h2>
+    <h2>Pulling up the deck…</h2>
     <p>Pulling live results from the scorekeeping sheet.</p>
   </div>
 </div>
@@ -652,7 +655,7 @@ async function renderAsync(gamesData, perfData){
   const totalGames = games.length;
   const players = [...new Set(perf.map(p => p.Player))].filter(Boolean);
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
-  const { map: pfpMap, activeDecksByOwner, ownedDecksByOwner, deckColorFromSheet } = await fetchPlayerPfps(players);
+  const { map: pfpMap, activeDecksByOwner, deckColorFromSheet } = await fetchPlayerPfps(players);
   // Prefer the Players sheet's Color_ID (the authoritative deck registry)
   // over whatever Player_Performance's own Color_ID column has for that
   // deck — the sheet is edited once per deck, not re-typed every game.
@@ -677,18 +680,15 @@ async function renderAsync(gamesData, perfData){
     const wins = rows.filter(p => p.isWin).length;
     const gamesPlayed = rows.length;
     const survivalTurns = rows.map(p=>p.turnDiedNum).filter(x=>x);
-    const winTurns = rows.filter(r=>r.isWin).map(r=>r.gameEndTurn).filter(x=>x!=null);
     const deckSet = new Set(rows.map(r=>r.Deck).filter(Boolean));
     return {
       name, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgSurvival: mean(survivalTurns),
-      avgWinTurn: mean(winTurns),
       deckCount: deckSet.size
     };
   }).filter(p => p.gamesPlayed > 0)
-    // Tie-break priority: win % → wins → avg win turn (fewer is better) → name.
-    .sort((a,b) => b.winRate - a.winRate || b.wins - a.wins || turnCompareAsc(a.avgWinTurn, b.avgWinTurn) || a.name.localeCompare(b.name));
+    .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
 
   // ---------- seats ----------
   const seatTotals = {1:0,2:0,3:0,4:0};
@@ -709,47 +709,51 @@ async function renderAsync(gamesData, perfData){
       name, owner, gamesPlayed, wins,
       winRate: gamesPlayed ? wins/gamesPlayed : 0,
       avgWinTurn: mean(winTurns),
-      colorId, artUrl
+      colorId, artUrl,
+      isActive: isDeckActive(activeDecksByOwner, owner, name)
     };
   }).filter(d => d.gamesPlayed > 0)
-    .sort((a,b) => b.winRate - a.winRate || b.gamesPlayed - a.gamesPlayed);
-
-  // deckStats (from the normalize block above) already carries colorId per deck.
+    // Tie-break priority: win % → wins → avg win turn (fewer is better) → name.
+    .sort((a,b) => b.winRate - a.winRate || b.wins - a.wins || turnCompareAsc(a.avgWinTurn, b.avgWinTurn) || a.name.localeCompare(b.name));
+  // deckStats (from the normalize block above) already carries colorId/owner/artUrl/isActive.
   const deckColorById = Object.fromEntries(deckStats.map(d => [d.name, d.colorId]));
+  const deckArtById = Object.fromEntries(deckStats.map(d => [d.name, d.artUrl]));
+  const deckActiveById = Object.fromEntries(deckStats.map(d => [d.name, d.isActive]));
+  // pfpMap already fetched in the normalize block above (used for pilot avatars/links elsewhere if needed).
 
-  // pfpMap already fetched in the normalize block above.
-
-  // ---------- resolve which player this page is for ----------
+  // ---------- resolve which deck this page is for ----------
   const nameParam = new URLSearchParams(location.search).get('name');
-  const targetName = nameParam ? players.find(n => n.toLowerCase() === nameParam.trim().toLowerCase()) : null;
+  const targetName = nameParam ? decks.find(n => n.toLowerCase() === nameParam.trim().toLowerCase()) : null;
 
   let bodyHtml;
 
   if (!targetName){
     // ---------- directory mode: no name given, or name not recognized ----------
+    const inactiveDeckCount = deckStats.filter(d => !d.isActive).length;
     bodyHtml = `
       <header class="hero" style="padding:56px 24px 24px;">
         <div class="hero-inner">
-          <div class="eyebrow"><span class="line"></span>Player directory</div>
-          <h1 style="font-size:clamp(28px,4.4vw,44px);">${nameParam ? `No player named "${nameParam}"` : 'Choose a player'}</h1>
-          <p class="sub">${nameParam ? "That name doesn't match anyone in the sheet. Pick from the list below." : 'Every player who has logged a game — tap one to see their full profile.'} <a href="index.html" style="color:var(--gold-bright);">← Back to overview</a></p>
+          <div class="eyebrow"><span class="line"></span>Deck directory</div>
+          <h1 style="font-size:clamp(28px,4.4vw,44px);">${nameParam ? `No deck named "${nameParam}"` : 'Choose a deck'}</h1>
+          <p class="sub">${nameParam ? "That name doesn't match anything in the sheet. Pick from the list below." : 'Every active deck that has hit the table — tap one to see its full profile.'} <a href="index.html" style="color:var(--gold-bright);">← Back to overview</a></p>
         </div>
       </header>
       <section>
         <div class="wrap">
-          <div class="grid" style="grid-template-columns:1fr;">
-            ${(() => { const ranks = rankItems(playerStats, p => [Math.round(p.winRate*10000), p.wins, p.avgWinTurn==null?'null':Math.round(p.avgWinTurn*100)].join('_')); return playerStats.map((p,i) => {
-              const pfpUrl = pfpMap[p.name];
-              const initial = (p.name || '?').trim().charAt(0).toUpperCase();
-              const avatarStyle = pfpUrl ? `background-image:url('${escUrl(pfpUrl)}');background-size:cover;background-position:center;` : '';
+          ${inactiveDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('deckDirGrid', this, ${inactiveDeckCount})">Show inactive decks (${inactiveDeckCount})</button>` : ''}
+          <div class="grid grid-3" id="deckDirGrid">
+            ${(() => { const ranks = rankItems(deckStats, d => [Math.round(d.winRate*10000), d.wins, d.avgWinTurn==null?'null':Math.round(d.avgWinTurn*100)].join('_')); return deckStats.map((d,i) => {
+              const hasArt = !!d.artUrl;
+              const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
               return `
-              <a href="${playerUrl(p.name)}" class="panel leader-card" style="text-decoration:none;">
-                <div class="life-badge" style="${avatarStyle}">${pfpUrl ? '' : `<div class="n">${initial}</div>`}</div>
-                <div class="leader-info">
-                  <div class="leader-name"><span class="rank-tag">#${ranks[i]}</span>${p.name}</div>
-                  <div class="leader-pct">${pct(p.winRate)}</div>
-                  <div class="leader-sub">${p.wins}/${p.gamesPlayed} games</div>
-                  <div class="bar-track"><div class="bar-fill" style="width:${p.winRate*100}%"></div></div>
+              <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;"${d.isActive ? '' : ' data-inactive="1"'}>
+                <div class="tile-top">
+                  <span class="tile-pos">#${ranks[i]}</span>
+                  <span class="tile-pct">${pct(d.winRate)}</span>
+                </div>
+                <div class="tile-bottom">
+                  <div class="tile-name">${pipsHTML(d.colorId)} &nbsp;${d.name}</div>
+                  <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}</div>
                 </div>
               </a>`;
             }).join(''); })()}
@@ -758,11 +762,14 @@ async function renderAsync(gamesData, perfData){
       </section>
     `;
   } else {
-    // ---------- single player profile ----------
-    const rows = perf.filter(p => p.Player === targetName);
+    // ---------- single deck profile ----------
+    const rows = perf.filter(p => p.Deck === targetName);
     const wins = rows.filter(r=>r.isWin).length;
     const gamesPlayed = rows.length;
     const winRate = gamesPlayed ? wins/gamesPlayed : 0;
+    const colorId = rows.find(r=>r.Color_ID)?.Color_ID || '';
+    const owner = rows.find(r=>r.Owner)?.Owner || rows[0]?.Player || '';
+    const artUrl = rows.find(r=>r.ArtURL)?.ArtURL || '';
 
     const allEndTurns = rows.map(r=>r.gameEndTurn).filter(x=>x!=null);
     const winTurns = rows.filter(r=>r.isWin).map(r=>r.gameEndTurn).filter(x=>x!=null);
@@ -793,20 +800,12 @@ async function renderAsync(gamesData, perfData){
     }).filter(x=>x!=null);
     const avgManaPerTurn = mean(manaRows);
 
-    // Playing as [color]: this player's own win rate broken out by which
-    // colors THEIR deck ran that game (a WU deck's game counts toward both).
-    const colorPlayedAs = ['W','U','B','R','G'].map(c => {
-      const cRows = rows.filter(r => (r.Color_ID||'').toUpperCase().includes(c));
-      const w = cRows.filter(r=>r.isWin).length;
-      return { color:c, games:cRows.length, winRate: cRows.length ? w/cRows.length : null };
-    }).filter(x => x.games > 0);
-
-    // Facing [color]: this player's win rate in games where at least one
-    // OPPONENT's deck ran that color (their own deck's color doesn't count).
+    // Facing [color]: this deck's win rate in games where at least one
+    // opponent's deck ran that color.
     const oppColorMap = {};
     rows.forEach(r => {
       const oppColors = new Set();
-      perf.filter(p => p.GameID === r.GameID && p.Player !== targetName).forEach(o => {
+      perf.filter(p => p.GameID === r.GameID && p.Deck !== targetName).forEach(o => {
         (o.Color_ID||'').toUpperCase().split('').forEach(ch => { if ('WUBRG'.includes(ch)) oppColors.add(ch); });
       });
       oppColors.forEach(c => {
@@ -820,117 +819,56 @@ async function renderAsync(gamesData, perfData){
       return v ? { color:c, games:v.games, winRate: v.wins/v.games } : null;
     }).filter(Boolean);
 
-    // decks piloted (this player's own record with each deck)
-    const deckNames = [...new Set(rows.map(r=>r.Deck).filter(Boolean))];
-    const decksPiloted = deckNames.map(dn => {
-      const dRows = rows.filter(r=>r.Deck===dn);
-      const w = dRows.filter(r=>r.isWin).length;
-      const artUrl = dRows.find(r=>r.ArtURL)?.ArtURL || '';
-      const owner = dRows.find(r=>r.Owner)?.Owner || targetName;
-      const borrowed = normKey(owner) !== normKey(targetName);
-      const inactive = !isDeckActive(activeDecksByOwner, owner, dn);
-      return {
-        name:dn, games:dRows.length, wins:w, winRate: dRows.length ? w/dRows.length : 0,
-        artUrl, owner, borrowed,
-        hide: borrowed || inactive
-      };
+    // pilots (who has played this deck, in case ownership/piloting shifted)
+    const pilotNames = [...new Set(rows.map(r=>r.Player).filter(Boolean))];
+    const pilots = pilotNames.map(pn => {
+      const pRows = rows.filter(r=>r.Player===pn);
+      const w = pRows.filter(r=>r.isWin).length;
+      return { name:pn, games:pRows.length, wins:w, winRate: pRows.length ? w/pRows.length : 0 };
     }).sort((a,b)=> b.games - a.games);
-    const hiddenDeckCount = decksPiloted.filter(d => d.hide).length;
 
-    // Decks owned: pulled straight from the Players sheet's list for this
-    // player (via ownedDecksByOwner), independent of whether they've actually
-    // logged a game with each one yet — "owned" is a sheet fact, not derived
-    // from Player_Performance the way "decks piloted" below is.
-    const ownedActiveDecks = ownedDecksByOwner[targetName] || [];
-    const colorFrequency = ['W','U','B','R','G'].map(c => {
-      const withColor = ownedActiveDecks.filter(d => (d.colorId||'').toUpperCase().includes(c)).length;
-      return { color:c, count: withColor, total: ownedActiveDecks.length, frac: ownedActiveDecks.length ? withColor/ownedActiveDecks.length : 0 };
-    }).sort((a,b) => b.frac - a.frac || a.color.localeCompare(b.color));
-
-    // By color count: how many of this player's decks are mono, 2-color,
-    // 3-color, etc. — same bucketing as the overview's Color identity section,
-    // just counted over decks instead of games.
-    const colorCountBuckets = {};
-    ownedActiveDecks.forEach(d => {
-      const id = (d.colorId || '').toUpperCase();
-      const n = new Set(id.replace(/[^WUBRG]/g,'').split('')).size;
-      const key = n === 0 ? 'Colorless' : n===1 ? 'Mono' : n===2 ? '2-Color' : n===3 ? '3-Color' : n===4 ? '4-Color' : '5-Color';
-      colorCountBuckets[key] = (colorCountBuckets[key]||0) + 1;
-    });
-    const colorCountOrder = ['Colorless','Mono','2-Color','3-Color','4-Color','5-Color'];
-    const deckColorCountStats = colorCountOrder.filter(k=>colorCountBuckets[k]).map(k => ({
-      label: k, count: colorCountBuckets[k], total: ownedActiveDecks.length,
-      frac: ownedActiveDecks.length ? colorCountBuckets[k]/ownedActiveDecks.length : 0
-    }));
-
-    // Decks PLAYED (as opposed to owned): game-weighted, from Player_Performance
-    // rather than the Players sheet. A deck you own but rarely pick up barely
-    // shows here; one you keep bringing to the table dominates — different
-    // question from "what's in your collection."
-    const playedColorFrequency = ['W','U','B','R','G'].map(c => {
-      const withColor = rows.filter(r => (r.Color_ID||'').toUpperCase().includes(c)).length;
-      return { color:c, count: withColor, total: rows.length, frac: rows.length ? withColor/rows.length : 0 };
-    }).sort((a,b) => b.frac - a.frac || a.color.localeCompare(b.color));
-
-    const playedColorCountBuckets = {};
-    rows.forEach(r => {
-      const id = (r.Color_ID || '').toUpperCase();
-      const n = new Set(id.replace(/[^WUBRG]/g,'').split('')).size;
-      const key = n === 0 ? 'Colorless' : n===1 ? 'Mono' : n===2 ? '2-Color' : n===3 ? '3-Color' : n===4 ? '4-Color' : '5-Color';
-      playedColorCountBuckets[key] = (playedColorCountBuckets[key]||0) + 1;
-    });
-    const playedColorCountStats = colorCountOrder.filter(k=>playedColorCountBuckets[k]).map(k => ({
-      label: k, count: playedColorCountBuckets[k], total: rows.length,
-      frac: rows.length ? playedColorCountBuckets[k]/rows.length : 0
-    }));
-
-    // head-to-head vs every opponent shared
+    // rivalries: other decks it has shared a table with
     const byGame = {};
     rows.forEach(r => { byGame[r.GameID] = true; });
     const oppMap = {};
-    perf.forEach(p => {
-      if (!byGame[p.GameID] || p.Player === targetName) return;
-      if (!oppMap[p.Player]) oppMap[p.Player] = { name:p.Player, games:0, myWins:0, theirWins:0 };
-      oppMap[p.Player].games++;
-    });
-    // decisive wins per shared game
     Object.keys(byGame).forEach(gid => {
-      const w = gamesById[gid]?.Winner_Player;
-      const oppsInGame = perf.filter(p => p.GameID === gid && p.Player !== targetName).map(p=>p.Player);
+      const w = gamesById[gid]?.Winner_Deck;
+      const oppsInGame = [...new Set(perf.filter(p => p.GameID === gid && p.Deck !== targetName).map(p=>p.Deck))];
       oppsInGame.forEach(opp => {
-        if (!oppMap[opp]) return;
+        if (!oppMap[opp]) oppMap[opp] = { name:opp, games:0, myWins:0, theirWins:0 };
+        oppMap[opp].games++;
         if (w === targetName) oppMap[opp].myWins++;
         else if (w === opp) oppMap[opp].theirWins++;
       });
     });
-    const headToHead = Object.values(oppMap).sort((a,b)=> b.games - a.games);
+    const rivalries = Object.values(oppMap)
+      .map(r => ({ ...r, artUrl: deckArtById[r.name] || '', hide: deckActiveById[r.name] === false }))
+      .sort((a,b)=> b.games - a.games);
+    const hiddenRivalryCount = rivalries.filter(r => r.hide).length;
 
-    // recent games (most recent first)
+    // recent games
     const recentGames = rows.map(r => {
       const g = gamesById[r.GameID];
-      const opponents = perf.filter(p => p.GameID === r.GameID && p.Player !== targetName).map(p=>p.Player);
+      const opponents = [...new Set(perf.filter(p => p.GameID === r.GameID && p.Deck !== targetName).map(p=>p.Deck))];
       return {
-        gameId: r.GameID,
         timestamp: g?.Timestamp || '',
-        deck: r.Deck,
+        pilot: r.Player,
         seat: r.SeatNum,
         isWin: r.isWin,
         turnDied: r.turnDiedNum,
-        endTurn: g?.End_Turn,
         opponents
       };
     }).filter(g => g.timestamp).sort((a,b) => new Date(b.timestamp) - new Date(a.timestamp)).slice(0, 15);
 
-    const pfpUrl = pfpMap[targetName];
-    const initial = targetName.trim().charAt(0).toUpperCase();
-    const avatarStyle = pfpUrl ? `background-image:url('${escUrl(pfpUrl)}');` : '';
+    const hasArt = !!artUrl;
+    const avatarStyle = hasArt ? `background-image:url('${escUrl(artUrl)}');background-size:cover;background-position:center;` : '';
 
     bodyHtml = `
       <div class="profile-header">
-        <div class="profile-avatar" style="${avatarStyle}">${pfpUrl ? '' : `<div class="n">${initial}</div>`}</div>
+        <div class="profile-avatar deck-avatar" style="${avatarStyle}">${hasArt ? '' : `<div class="n">${targetName.trim().charAt(0).toUpperCase()}</div>`}</div>
         <div class="profile-title">
-          <h1>${targetName}</h1>
-          <div class="sub">${gamesPlayed} games logged · <a href="index.html">← Back to overview</a></div>
+          <h1>${pipsHTML(colorId)} ${targetName}</h1>
+          <div class="sub">${owner} · ${gamesPlayed} games logged · <a href="index.html">← Back to overview</a></div>
         </div>
         <div class="profile-record">
           <div class="pct">${pct(winRate)}</div>
@@ -941,7 +879,7 @@ async function renderAsync(gamesData, perfData){
       <section id="turns" style="padding-top:0;">
         <div class="wrap">
           <div class="section-head">
-            <div><h2>Turn averages</h2><div class="section-desc">How long games run when ${targetName} plays.</div></div>
+            <div><h2>Turn averages</h2><div class="section-desc">How long games run with ${targetName} on the table.</div></div>
             <div class="idx">01 / TURNS</div>
           </div>
           <div class="grid grid-3">
@@ -982,26 +920,15 @@ async function renderAsync(gamesData, perfData){
       <section id="colormatch">
         <div class="wrap">
           <div class="section-head">
-            <div><h2>Color matchups</h2><div class="section-desc">${targetName}'s win rate playing each color, and facing each color.</div></div>
+            <div><h2>Color matchups</h2><div class="section-desc">${targetName}'s win rate facing each color.</div></div>
             <div class="idx">03 / COLORS</div>
           </div>
-          <div class="grid grid-2">
-            <div class="panel" style="padding:20px 20px 8px;">
-              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:14px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">Playing as</h3>
-              ${colorPlayedAs.map(c => `<div class="hbar-row">
-                <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
-                <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate!=null ? c.winRate*100 : 0}%"></div></div>
-                <div class="hbar-val">${c.winRate!=null ? pct(c.winRate) : '—'}</div>
-              </div>`).join('') || '<div class="empty-note">No color data yet.</div>'}
-            </div>
-            <div class="panel" style="padding:20px 20px 8px;">
-              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:14px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">Facing</h3>
-              ${colorAgainst.map(c => `<div class="hbar-row">
-                <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
-                <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
-                <div class="hbar-val">${pct(c.winRate)}</div>
-              </div>`).join('') || '<div class="empty-note">No opponent color data yet.</div>'}
-            </div>
+          <div class="panel" style="padding:20px 20px 8px;">
+            ${colorAgainst.map(c => `<div class="hbar-row">
+              <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
+              <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
+              <div class="hbar-val">${pct(c.winRate)}</div>
+            </div>`).join('') || '<div class="empty-note">No opponent color data yet.</div>'}
           </div>
         </div>
       </section>
@@ -1018,99 +945,45 @@ async function renderAsync(gamesData, perfData){
         </div>
       </section>
 
-      <section id="decks">
+      <section id="pilots">
         <div class="wrap">
           <div class="section-head">
-            <div><h2>Decks piloted</h2><div class="section-desc">${targetName}'s own record with each active, owned deck.</div></div>
-            <div class="idx">05 / DECKS</div>
-          </div>
-          ${hiddenDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('decksPilotedList', this, ${hiddenDeckCount}, 'Show inactive/unowned decks (${hiddenDeckCount})', 'Hide inactive/unowned decks')">Show inactive/unowned decks (${hiddenDeckCount})</button>` : ''}
-          <div class="panel rowlist with-thumbs" id="decksPilotedList">
-            ${(() => { const ranks = rankItems(decksPiloted, d => d.games); return decksPiloted.map((d,i) => `
-              <a href="${deckUrl(d.name)}" class="r" style="text-decoration:none;color:inherit;"${d.hide ? ' data-inactive="1"' : ''}>
-                <div class="pos">${ranks[i]}</div>
-                ${d.artUrl ? `<img class="deck-thumb" src="${escUrl(d.artUrl)}" alt="" style="width:42px;height:42px;min-width:42px;max-width:42px;object-fit:cover;border-radius:8px;">` : `<div class="deck-thumb" style="width:42px;height:42px;min-width:42px;"></div>`}
-                <div class="main">
-                  <div class="name">${pipsHTML(deckColorById[d.name])} &nbsp;${d.name}</div>
-                  <div class="meta">${d.games} game${d.games===1?'':'s'}${d.borrowed ? ' · not owned' : ''}</div>
-                </div>
-                <div class="stat"><div class="big">${pct(d.winRate)}</div><div class="small">${d.wins}W</div></div>
-                <div class="bar-track"><div class="bar-fill" style="width:${d.winRate*100}%"></div></div>
-              </a>
-            `).join('') || '<div class="empty-note">No decks logged yet.</div>'; })()}
-          </div>
-        </div>
-      </section>
-
-      <section id="colorsowned">
-        <div class="wrap">
-          <div class="section-head">
-            <div><h2>Decks owned</h2><div class="section-desc">Of ${targetName}'s ${ownedActiveDecks.length} active, owned deck${ownedActiveDecks.length===1?'':'s'} (from the Players sheet): how many colors each deck runs, and how many run each individual color.</div></div>
-            <div class="idx">06 / DECKS OWNED</div>
-          </div>
-          <div class="grid grid-2">
-            <div class="panel" style="padding:22px 24px;">
-              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By color count</h3>
-              ${deckColorCountStats.map(c => `<div class="hbar-row">
-                <div class="hbar-label">${c.label}</div>
-                <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
-                <div class="hbar-val">${c.count}/${c.total}</div>
-              </div>`).join('') || '<div class="empty-note">No decks logged yet.</div>'}
-            </div>
-            <div class="panel" style="padding:22px 24px;">
-              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By individual color</h3>
-              ${colorFrequency.map(c => `<div class="hbar-row">
-                <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
-                <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
-                <div class="hbar-val">${c.count}/${c.total}</div>
-              </div>`).join('') || '<div class="empty-note">No decks logged yet.</div>'}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="colorsplayed">
-        <div class="wrap">
-          <div class="section-head">
-            <div><h2>Decks played</h2><div class="section-desc">Same breakdown, but weighted by ${rows.length} actual game${rows.length===1?'':'s'} played instead of decks owned — a deck you bring to every table outweighs one that sits on the shelf.</div></div>
-            <div class="idx">07 / DECKS PLAYED</div>
-          </div>
-          <div class="grid grid-2">
-            <div class="panel" style="padding:22px 24px;">
-              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By color count</h3>
-              ${playedColorCountStats.map(c => `<div class="hbar-row">
-                <div class="hbar-label">${c.label}</div>
-                <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
-                <div class="hbar-val">${c.count}/${c.total}</div>
-              </div>`).join('') || '<div class="empty-note">No games logged yet.</div>'}
-            </div>
-            <div class="panel" style="padding:22px 24px;">
-              <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By individual color</h3>
-              ${playedColorFrequency.map(c => `<div class="hbar-row">
-                <div class="hbar-label">${pipsHTML(c.color)} &nbsp;${COLOR_NAMES[c.color]}</div>
-                <div class="hbar-track"><div class="hbar-fill" style="width:${c.frac*100}%"></div></div>
-                <div class="hbar-val">${c.count}/${c.total}</div>
-              </div>`).join('') || '<div class="empty-note">No games logged yet.</div>'}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="h2h">
-        <div class="wrap">
-          <div class="section-head">
-            <div><h2>Head-to-head</h2><div class="section-desc">Decisive record against every opponent ${targetName} has shared a table with.</div></div>
-            <div class="idx">08 / HEAD-TO-HEAD</div>
+            <div><h2>Pilots</h2><div class="section-desc">Everyone who's played ${targetName}.</div></div>
+            <div class="idx">05 / PILOTS</div>
           </div>
           <div class="panel rowlist">
-            ${(() => { const ranks = rankItems(headToHead, o => o.games); return headToHead.map((o,i) => {
+            ${(() => { const ranks = rankItems(pilots, p => p.games); return pilots.map((p,i) => `
+              <a href="${playerUrl(p.name)}" class="r" style="text-decoration:none;color:inherit;">
+                <div class="pos">${ranks[i]}</div>
+                <div class="main">
+                  <div class="name">${p.name}</div>
+                  <div class="meta">${p.games} game${p.games===1?'':'s'}</div>
+                </div>
+                <div class="stat"><div class="big">${pct(p.winRate)}</div><div class="small">${p.wins}W</div></div>
+                <div class="bar-track"><div class="bar-fill" style="width:${p.winRate*100}%"></div></div>
+              </a>
+            `).join('') || '<div class="empty-note">No pilots logged yet.</div>'; })()}
+          </div>
+        </div>
+      </section>
+
+      <section id="rivalries">
+        <div class="wrap">
+          <div class="section-head">
+            <div><h2>Rivalries</h2><div class="section-desc">Decisive record against every active deck ${targetName} has shared a table with.</div></div>
+            <div class="idx">06 / RIVALRIES</div>
+          </div>
+          ${hiddenRivalryCount ? `<button class="inactive-toggle" onclick="toggleInactive('rivalriesList', this, ${hiddenRivalryCount})">Show inactive decks (${hiddenRivalryCount})</button>` : ''}
+          <div class="panel rowlist with-thumbs" id="rivalriesList">
+            ${(() => { const ranks = rankItems(rivalries, o => o.games); return rivalries.map((o,i) => {
               const decisive = o.myWins + o.theirWins;
               const myRate = decisive ? o.myWins/decisive : null;
               return `
-              <a href="${playerUrl(o.name)}" class="r" style="text-decoration:none;color:inherit;">
+              <a href="${deckUrl(o.name)}" class="r" style="text-decoration:none;color:inherit;"${o.hide ? ' data-inactive="1"' : ''}>
                 <div class="pos">${ranks[i]}</div>
+                ${o.artUrl ? `<img class="deck-thumb" src="${escUrl(o.artUrl)}" alt="" style="width:42px;height:42px;min-width:42px;max-width:42px;object-fit:cover;border-radius:8px;">` : `<div class="deck-thumb" style="width:42px;height:42px;min-width:42px;"></div>`}
                 <div class="main">
-                  <div class="name">${o.name}</div>
+                  <div class="name">${pipsHTML(deckColorById[o.name])} &nbsp;${o.name}</div>
                   <div class="meta">${o.games} shared game${o.games===1?'':'s'} · ${decisive} decisive</div>
                 </div>
                 <div class="stat"><div class="big">${myRate!=null ? pct(myRate) : '—'}</div><div class="small">${o.myWins}-${o.theirWins}</div></div>
@@ -1125,16 +998,16 @@ async function renderAsync(gamesData, perfData){
         <div class="wrap">
           <div class="section-head">
             <div><h2>Recent games</h2><div class="section-desc">Most recent games first.</div></div>
-            <div class="idx">09 / RECENT</div>
+            <div class="idx">07 / RECENT</div>
           </div>
           <div class="panel game-log">
             ${recentGames.map(g => {
               const d = new Date(g.timestamp.replace(' ','T'));
               const dateLabel = isNaN(d) ? '' : d.toLocaleDateString('en-US', { month:'short', day:'numeric' });
-              const oppLinks = g.opponents.map(o => `<a href="${playerUrl(o)}">${o}</a>`).join(', ');
+              const oppLinks = g.opponents.map(o => `<a href="${deckUrl(o)}">${o}</a>`).join(', ');
               return `<div class="row">
                 <div class="date">${dateLabel}</div>
-                <div class="info"><b>${g.deck}</b> · seat ${g.seat ?? '—'} vs ${oppLinks || '—'}</div>
+                <div class="info">piloted by <b>${g.pilot}</b> · seat ${g.seat ?? '—'} vs ${oppLinks || '—'}</div>
                 <div class="result ${g.isWin ? 'win' : 'loss'}">${g.isWin ? 'WIN' : 'T' + (g.turnDied ?? '—')}</div>
               </div>`;
             }).join('') || '<div class="empty-note">No dated games yet.</div>'}
