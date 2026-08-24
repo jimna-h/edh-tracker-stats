@@ -449,6 +449,7 @@ async function fetchSheet(name, sheetId){
 async function fetchPlayerPfps(playerNames){
   const map = {};
   const activeDecksByOwner = {};
+  const deckColorFromSheet = {};
   const debug = [];
   await Promise.all(playerNames.map(async name => {
     const url = gvizUrl(name, PFP_SHEET_ID);
@@ -478,6 +479,12 @@ async function fetchPlayerPfps(playerNames){
         const excludeRaw = field(r, headerByNorm, 'Exclude');
         const excluded = (excludeRaw || '').trim().toUpperCase() === 'TRUE';
         if (!excluded) activeSet.add(normKey(dn));
+        // This player-owned tab is the authoritative deck registry — its
+        // Color_ID should win over whatever got typed into Player_Performance
+        // on any given game log row (which is re-entered by hand every game
+        // and prone to drift/typos for the same deck over time).
+        const colorId = field(r, headerByNorm, 'Color_ID', 'Colors', 'ColorID', 'Color');
+        if (dn && colorId && colorId.trim()) deckColorFromSheet[normKey(dn)] = colorId.trim();
       });
       activeDecksByOwner[name] = activeSet;
       rec.result = 'OK';
@@ -487,7 +494,7 @@ async function fetchPlayerPfps(playerNames){
       debug.push(rec);
     }
   }));
-  return { map, activeDecksByOwner, debug };
+  return { map, activeDecksByOwner, deckColorFromSheet, debug };
 }
 
 // A deck instance is "active" if its owner's tab lists it (un-excluded).
@@ -639,7 +646,14 @@ async function renderAsync(gamesData, perfData){
   const totalGames = games.length;
   const players = [...new Set(perf.map(p => p.Player))].filter(Boolean);
   const decks = [...new Set(perf.map(p => p.Deck))].filter(Boolean);
-  const { map: pfpMap, activeDecksByOwner } = await fetchPlayerPfps(players);
+  const { map: pfpMap, activeDecksByOwner, deckColorFromSheet } = await fetchPlayerPfps(players);
+  // Prefer the Players sheet's Color_ID (the authoritative deck registry)
+  // over whatever Player_Performance's own Color_ID column has for that
+  // deck — the sheet is edited once per deck, not re-typed every game.
+  perf.forEach(p => {
+    const sheetColor = deckColorFromSheet[normKey(p.Deck)];
+    if (sheetColor) p.Color_ID = sheetColor;
+  });
   const avgTurn = mean(games.map(g=>g.End_Turn).filter(x=>x));
   // Null (not undefined-from-empty-reduce) when every logged game so far was
   // won by Guest — the template below must check for this rather than assume
