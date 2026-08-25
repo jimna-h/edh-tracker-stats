@@ -835,13 +835,13 @@ async function renderAsync(gamesData, perfData){
       <div class="nav-mark"><span class="dot"></span>The Table</div>
       <div class="nav-links">
         <a href="#players">Players</a>
+        <a href="#rivalries">Rivalries</a>
+        <a href="#awards">Awards</a>
+        <a href="#trend">Activity</a>
+        <a href="#mulligans">Mulligans</a>
+        <a href="#colors">Colors</a>
         <a href="#seats">Seats</a>
         <a href="#decks">Decks</a>
-        <a href="#colors">Colors</a>
-        <a href="#mulligans">Mulligans</a>
-        <a href="#trend">Trend</a>
-        <a href="#awards">Awards</a>
-        <a href="#rivalries">Rivalries</a>
       </div>
     </div>
   </nav>
@@ -890,117 +890,30 @@ async function renderAsync(gamesData, perfData){
       </div>
     </div>
   </section>
-
-  <section id="seats">
+  <section id="rivalries">
     <div class="wrap">
       <div class="section-head">
-        <div><h2>Does seat matter?</h2><div class="section-desc">Win rate by turn order — seat 1 goes first each game.</div></div>
-        <div class="idx">02 / SEATS</div>
+        <div><h2>Recurring rivalries</h2><div class="section-desc">Players who've shared the most tables, and who's winning when they do.</div></div>
+        <div class="idx">02 / RIVALRIES</div>
       </div>
-      <div class="panel" style="padding:24px 24px 10px;">
-        ${[1,2,3,4].map(s => {
-          const rate = seatTotals[s] ? seatWins[s]/seatTotals[s] : 0;
-          return `<div class="hbar-row">
-            <div class="hbar-label">Seat ${s}</div>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${rate*100}%"></div></div>
-            <div class="hbar-val">${pct(rate)}</div>
+      <div class="grid grid-2">
+        ${rivalries.map(r => {
+          const total = r.aWins + r.bWins;
+          const aPct = total ? (r.aWins/total)*100 : 50;
+          return `<div class="panel rivalry-card">
+            <div class="rivalry-names"><span>${r.a}</span><span class="rivalry-vs">${r.games} shared games</span><span>${r.b}</span></div>
+            <div class="rivalry-track"><div class="rivalry-a" style="width:${aPct}%"></div><div class="rivalry-b" style="width:${100-aPct}%"></div></div>
+            <div class="rivalry-meta"><span>${r.aWins} wins</span><span>${total} decisive</span><span>${r.bWins} wins</span></div>
           </div>`;
         }).join('')}
       </div>
     </div>
   </section>
-
-  <section id="decks">
-    <div class="wrap">
-      <div class="section-head">
-        <div><h2>Deck performance</h2><div class="section-desc">Every active deck that's hit the table, ranked by win rate (min. 1 game).</div></div>
-        <div class="idx">03 / DECKS</div>
-      </div>
-      ${inactiveDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('deckGrid', this, ${inactiveDeckCount})">Show inactive decks (${inactiveDeckCount})</button>` : ''}
-      <div class="grid grid-3" id="deckGrid">
-        ${(() => { const ranks = rankItems(deckStats, d => [Math.round(d.winRate*10000), d.wins, d.avgWinTurn==null?'null':Math.round(d.avgWinTurn*100)].join('_')); return deckStats.map((d,i) => {
-          const hasArt = !!d.artUrl;
-          const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
-          return `
-          <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;"${d.isActive ? '' : ' data-inactive="1"'}>
-            <div class="tile-top">
-              <span class="tile-pos">#${ranks[i]}</span>
-              <span class="tile-pct">${pct(d.winRate)}</span>
-            </div>
-            <div class="tile-bottom">
-              <div class="tile-name">${pipsHTML(d.colorId)} &nbsp;${d.name}</div>
-              <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}</div>
-              <div class="tile-meta">${d.wins}W · avg win T${fmt1(d.avgWinTurn)}</div>
-            </div>
-          </a>
-        `;}).join(''); })()}
-      </div>
-    </div>
-  </section>
-
-  <section id="colors">
-    <div class="wrap">
-      <div class="section-head">
-        <div><h2>Color identity</h2><div class="section-desc">Win rate by color count, and by individual color (a WU deck counts toward both W and U).</div></div>
-        <div class="idx">04 / COLORS</div>
-      </div>
-      <div class="grid grid-2">
-        <div class="panel" style="padding:22px 24px;">
-          <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By color count</h3>
-          ${colorCountStats.map(c => `<div class="hbar-row">
-            <div class="hbar-label">${c.label}</div>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
-            <div class="hbar-val">${pct(c.winRate)}</div>
-          </div>`).join('')}
-        </div>
-        <div class="panel" style="padding:22px 24px;">
-          <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By individual color</h3>
-          ${colorStats.map(c => `<div class="hbar-row">
-            <div class="hbar-label">${pipsHTML(c.id)} &nbsp;${COLOR_NAMES[c.id] || c.id}</div>
-            <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
-            <div class="hbar-val">${pct(c.winRate)}</div>
-          </div>`).join('')}
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section id="mulligans">
-    <div class="wrap">
-      <div class="section-head">
-        <div><h2>Mulligan habits</h2><div class="section-desc">Which mulligan rule the table used, per game.</div></div>
-        <div class="idx">05 / MULLIGANS</div>
-      </div>
-      <div class="panel" style="padding:24px 24px 10px;">
-        ${mullStats.map(m => `<div class="hbar-row">
-          <div class="hbar-label">${m.type}</div>
-          <div class="hbar-track"><div class="hbar-fill" style="width:${m.pct*100}%"></div></div>
-          <div class="hbar-val">${m.count}×</div>
-        </div>`).join('')}
-      </div>
-    </div>
-  </section>
-
-  <section id="trend">
-    <div class="wrap">
-      <div class="section-head">
-        <div><h2>Pod activity</h2><div class="section-desc">Games played per month, and how long games are running.</div></div>
-        <div class="idx">06 / TREND</div>
-      </div>
-      <div class="panel trend-wrap">
-        <div class="trend-bars">
-          ${monthStats.map(m => `<div class="tbar" style="height:${(m.count/maxMonthCount)*100}%"><div class="tt">${m.count} games · avg T${fmt1(m.avgTurn)}</div></div>`).join('')}
-        </div>
-        <div class="trend-axis">${monthStats.map(m => `<span>${m.label}</span>`).join('')}</div>
-      </div>
-    </div>
-  </section>
-
   <section id="awards">
     <div class="wrap">
       <div class="section-head">
         <div><h2>Table awards</h2><div class="section-desc">The extremes, pulled straight from the log.</div></div>
-        <div class="idx">07 / AWARDS</div>
+        <div class="idx">03 / AWARDS</div>
       </div>
       <div class="grid grid-3">
         <div class="panel award-card">
@@ -1071,23 +984,103 @@ async function renderAsync(gamesData, perfData){
       </div>
     </div>
   </section>
-
-  <section id="rivalries">
+  <section id="trend">
     <div class="wrap">
       <div class="section-head">
-        <div><h2>Recurring rivalries</h2><div class="section-desc">Players who've shared the most tables, and who's winning when they do.</div></div>
-        <div class="idx">08 / RIVALRIES</div>
+        <div><h2>Game frequency</h2><div class="section-desc">Games played per month, and how long games are running.</div></div>
+        <div class="idx">04 / ACTIVITY</div>
+      </div>
+      <div class="panel trend-wrap">
+        <div class="trend-bars">
+          ${monthStats.map(m => `<div class="tbar" style="height:${(m.count/maxMonthCount)*100}%"><div class="tt">${m.count} games · avg T${fmt1(m.avgTurn)}</div></div>`).join('')}
+        </div>
+        <div class="trend-axis">${monthStats.map(m => `<span>${m.label}</span>`).join('')}</div>
+      </div>
+    </div>
+  </section>
+  <section id="mulligans">
+    <div class="wrap">
+      <div class="section-head">
+        <div><h2>Mulligan habits</h2><div class="section-desc">Which mulligan rule the table used, per game.</div></div>
+        <div class="idx">05 / MULLIGANS</div>
+      </div>
+      <div class="panel" style="padding:24px 24px 10px;">
+        ${mullStats.map(m => `<div class="hbar-row">
+          <div class="hbar-label">${m.type}</div>
+          <div class="hbar-track"><div class="hbar-fill" style="width:${m.pct*100}%"></div></div>
+          <div class="hbar-val">${m.count}×</div>
+        </div>`).join('')}
+      </div>
+    </div>
+  </section>
+  <section id="colors">
+    <div class="wrap">
+      <div class="section-head">
+        <div><h2>Color identity</h2><div class="section-desc">Win rate by color count, and by individual color (a WU deck counts toward both W and U).</div></div>
+        <div class="idx">06 / COLORS</div>
       </div>
       <div class="grid grid-2">
-        ${rivalries.map(r => {
-          const total = r.aWins + r.bWins;
-          const aPct = total ? (r.aWins/total)*100 : 50;
-          return `<div class="panel rivalry-card">
-            <div class="rivalry-names"><span>${r.a}</span><span class="rivalry-vs">${r.games} shared games</span><span>${r.b}</span></div>
-            <div class="rivalry-track"><div class="rivalry-a" style="width:${aPct}%"></div><div class="rivalry-b" style="width:${100-aPct}%"></div></div>
-            <div class="rivalry-meta"><span>${r.aWins} wins</span><span>${total} decisive</span><span>${r.bWins} wins</span></div>
+        <div class="panel" style="padding:22px 24px;">
+          <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By color count</h3>
+          ${colorCountStats.map(c => `<div class="hbar-row">
+            <div class="hbar-label">${c.label}</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
+            <div class="hbar-val">${pct(c.winRate)}</div>
+          </div>`).join('')}
+        </div>
+        <div class="panel" style="padding:22px 24px;">
+          <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By individual color</h3>
+          ${colorStats.map(c => `<div class="hbar-row">
+            <div class="hbar-label">${pipsHTML(c.id)} &nbsp;${COLOR_NAMES[c.id] || c.id}</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
+            <div class="hbar-val">${pct(c.winRate)}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+  </section>
+  <section id="seats">
+    <div class="wrap">
+      <div class="section-head">
+        <div><h2>Seat order</h2><div class="section-desc">Win rate by turn order — seat 1 goes first each game.</div></div>
+        <div class="idx">07 / SEATS</div>
+      </div>
+      <div class="panel" style="padding:24px 24px 10px;">
+        ${[1,2,3,4].map(s => {
+          const rate = seatTotals[s] ? seatWins[s]/seatTotals[s] : 0;
+          return `<div class="hbar-row">
+            <div class="hbar-label">Seat ${s}</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${rate*100}%"></div></div>
+            <div class="hbar-val">${pct(rate)}</div>
           </div>`;
         }).join('')}
+      </div>
+    </div>
+  </section>
+  <section id="decks">
+    <div class="wrap">
+      <div class="section-head">
+        <div><h2>Deck performance</h2><div class="section-desc">Every active deck that's hit the table, ranked by win rate (min. 1 game).</div></div>
+        <div class="idx">08 / DECKS</div>
+      </div>
+      ${inactiveDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('deckGrid', this, ${inactiveDeckCount})">Show inactive decks (${inactiveDeckCount})</button>` : ''}
+      <div class="grid grid-3" id="deckGrid">
+        ${(() => { const ranks = rankItems(deckStats, d => [Math.round(d.winRate*10000), d.wins, d.avgWinTurn==null?'null':Math.round(d.avgWinTurn*100)].join('_')); return deckStats.map((d,i) => {
+          const hasArt = !!d.artUrl;
+          const bgStyle = hasArt ? `background-image:url('${escUrl(d.artUrl)}');` : '';
+          return `
+          <a href="${deckUrl(d.name)}" class="deck-tile${hasArt ? '' : ' no-art'}" style="${bgStyle}text-decoration:none;"${d.isActive ? '' : ' data-inactive="1"'}>
+            <div class="tile-top">
+              <span class="tile-pos">#${ranks[i]}</span>
+              <span class="tile-pct">${pct(d.winRate)}</span>
+            </div>
+            <div class="tile-bottom">
+              <div class="tile-name">${pipsHTML(d.colorId)} &nbsp;${d.name}</div>
+              <div class="tile-meta">${d.owner} · ${d.gamesPlayed} game${d.gamesPlayed===1?'':'s'}</div>
+              <div class="tile-meta">${d.wins}W · avg win T${fmt1(d.avgWinTurn)}</div>
+            </div>
+          </a>
+        `;}).join(''); })()}
       </div>
     </div>
   </section>
