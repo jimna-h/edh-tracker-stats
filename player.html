@@ -524,6 +524,23 @@ function toggleInactive(containerId, btn, hiddenCount, showLabel, hideLabel){
     : (showLabel || ('Show inactive decks (' + hiddenCount + ')'));
 }
 
+// Re-sorts a rowlist by swapping which precomputed order/rank each row uses
+// (set via data-order-<mode>/data-rank-<mode> attributes) — reorders visually
+// through CSS flex `order`, no re-render needed.
+function setDeckSort(containerId, mode, groupEl){
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  const cap = mode.charAt(0).toUpperCase() + mode.slice(1);
+  [...el.children].forEach(row => {
+    const order = row.dataset['order' + cap];
+    const rank = row.dataset['rank' + cap];
+    if (order !== undefined) row.style.order = order;
+    const posEl = row.querySelector('.pos');
+    if (posEl && rank !== undefined) posEl.textContent = rank;
+  });
+  groupEl.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+}
+
 function mean(arr){ return arr.length ? arr.reduce((a,b)=>a+b,0)/arr.length : null; }
 function fmt1(n){ return n === null || n === undefined || isNaN(n) ? '—' : n.toFixed(1); }
 function pct(n){ return n === null || isNaN(n) ? '—' : Math.round(n*100) + '%'; }
@@ -837,6 +854,21 @@ async function renderAsync(gamesData, perfData){
     }).sort((a,b)=> b.games - a.games);
     const hiddenDeckCount = decksPiloted.filter(d => d.hide).length;
 
+    // Three sort orders for the Decks Piloted list, applied client-side via
+    // CSS flex `order` (no DOM duplication) — each deck carries its rank
+    // under all three modes, and the sort toggle just swaps which one drives
+    // both the visual order and the displayed rank number.
+    function sortRanked(arr, keyFn){
+      const sorted = [...arr].sort((a,b) => keyFn(b) - keyFn(a) || a.name.localeCompare(b.name));
+      const ranks = rankItems(sorted, keyFn);
+      const info = {};
+      sorted.forEach((d,i) => { info[d.name] = { order: i+1, rank: ranks[i] }; });
+      return info;
+    }
+    const sortByGames = sortRanked(decksPiloted, d=>d.games);
+    const sortByWins = sortRanked(decksPiloted, d=>d.wins);
+    const sortByWinRate = sortRanked(decksPiloted, d=>Math.round(d.winRate*10000));
+
     // Decks owned: pulled straight from the Players sheet's list for this
     // player (via ownedDecksByOwner), independent of whether they've actually
     // logged a game with each one yet — "owned" is a sheet fact, not derived
@@ -1024,11 +1056,21 @@ async function renderAsync(gamesData, perfData){
             <div><h2>Decks piloted</h2><div class="section-desc">${targetName}'s own record with each active, owned deck.</div></div>
             <div class="idx">05 / DECKS</div>
           </div>
-          ${hiddenDeckCount ? `<button class="inactive-toggle" onclick="toggleInactive('decksPilotedList', this, ${hiddenDeckCount}, 'Show inactive/unowned decks (${hiddenDeckCount})', 'Hide inactive/unowned decks')">Show inactive/unowned decks (${hiddenDeckCount})</button>` : ''}
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
+            <div class="toggle" id="decksSortToggle">
+              <button class="active" data-mode="games" onclick="setDeckSort('decksPilotedList','games', this.parentElement)">Games</button>
+              <button data-mode="wins" onclick="setDeckSort('decksPilotedList','wins', this.parentElement)">Wins</button>
+              <button data-mode="winrate" onclick="setDeckSort('decksPilotedList','winrate', this.parentElement)">Win %</button>
+            </div>
+            ${hiddenDeckCount ? `<button class="inactive-toggle" style="margin-bottom:0;" onclick="toggleInactive('decksPilotedList', this, ${hiddenDeckCount}, 'Show inactive/unowned decks (${hiddenDeckCount})', 'Hide inactive/unowned decks')">Show inactive/unowned decks (${hiddenDeckCount})</button>` : ''}
+          </div>
           <div class="panel rowlist with-thumbs" id="decksPilotedList">
-            ${(() => { const ranks = rankItems(decksPiloted, d => d.games); return decksPiloted.map((d,i) => `
-              <a href="${deckUrl(d.name)}" class="r" style="text-decoration:none;color:inherit;"${d.hide ? ' data-inactive="1"' : ''}>
-                <div class="pos">${ranks[i]}</div>
+            ${decksPiloted.map(d => `
+              <a href="${deckUrl(d.name)}" class="r" style="order:${sortByGames[d.name].order};text-decoration:none;color:inherit;"${d.hide ? ' data-inactive="1"' : ''}
+                 data-order-games="${sortByGames[d.name].order}" data-rank-games="${sortByGames[d.name].rank}"
+                 data-order-wins="${sortByWins[d.name].order}" data-rank-wins="${sortByWins[d.name].rank}"
+                 data-order-winrate="${sortByWinRate[d.name].order}" data-rank-winrate="${sortByWinRate[d.name].rank}">
+                <div class="pos">${sortByGames[d.name].rank}</div>
                 ${d.artUrl ? `<img class="deck-thumb" src="${escUrl(d.artUrl)}" alt="" style="width:42px;height:42px;min-width:42px;max-width:42px;object-fit:cover;border-radius:8px;">` : `<div class="deck-thumb" style="width:42px;height:42px;min-width:42px;"></div>`}
                 <div class="main">
                   <div class="name">${pipsHTML(deckColorById[d.name])} &nbsp;${d.name}</div>
@@ -1037,7 +1079,7 @@ async function renderAsync(gamesData, perfData){
                 <div class="stat"><div class="big">${pct(d.winRate)}</div><div class="small">${d.wins}W</div></div>
                 <div class="bar-track"><div class="bar-fill" style="width:${d.winRate*100}%"></div></div>
               </a>
-            `).join('') || '<div class="empty-note">No decks logged yet.</div>'; })()}
+            `).join('') || '<div class="empty-note">No decks logged yet.</div>'}
           </div>
         </div>
       </section>
@@ -1045,7 +1087,7 @@ async function renderAsync(gamesData, perfData){
       <section id="colorsowned">
         <div class="wrap">
           <div class="section-head">
-            <div><h2>Decks owned</h2><div class="section-desc">Of ${targetName}'s ${ownedActiveDecks.length} active, owned deck${ownedActiveDecks.length===1?'':'s'} (from the Players sheet): how many colors each deck runs, and how many run each individual color.</div></div>
+            <div><h2>Colors: Decks owned</h2><div class="section-desc">How many colors each deck runs, and how many run each individual color.</div></div>
             <div class="idx">06 / DECKS OWNED</div>
           </div>
           <div class="grid grid-2">
@@ -1072,7 +1114,7 @@ async function renderAsync(gamesData, perfData){
       <section id="colorsplayed">
         <div class="wrap">
           <div class="section-head">
-            <div><h2>Decks played</h2><div class="section-desc">Same breakdown, but weighted by ${rows.length} actual game${rows.length===1?'':'s'} played instead of decks owned — a deck you bring to every table outweighs one that sits on the shelf.</div></div>
+            <div><h2>Colors: Games played</h2><div class="section-desc">How many colors each deck runs, and how many run each individual color.</div></div>
             <div class="idx">07 / DECKS PLAYED</div>
           </div>
           <div class="grid grid-2">
@@ -1099,7 +1141,7 @@ async function renderAsync(gamesData, perfData){
       <section id="h2h">
         <div class="wrap">
           <div class="section-head">
-            <div><h2>Head-to-head</h2><div class="section-desc">Decisive record against every opponent ${targetName} has shared a table with.</div></div>
+            <div><h2>Head-to-head</h2><div class="section-desc">Decisive record against every opponent ${targetName} has shared a table with. 50% is an even split.</div></div>
             <div class="idx">08 / HEAD-TO-HEAD</div>
           </div>
           <div class="panel rowlist">
