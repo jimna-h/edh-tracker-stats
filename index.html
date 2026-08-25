@@ -734,6 +734,17 @@ async function renderAsync(gamesData, perfData){
     winRate: colorCountMap[k].wins/colorCountMap[k].games
   }));
 
+  // Popularity: how often each shows up, independent of how well it does.
+  // Individual colors can sum past 100% (a WU deck counts toward both); color
+  // count buckets can't, since every game belongs to exactly one of them.
+  const totalColorGames = perf.filter(p => p.Color_ID).length;
+  const colorPopularityStats = [...colorStats]
+    .map(c => ({ ...c, popularity: totalColorGames ? c.games/totalColorGames : 0 }))
+    .sort((a,b) => b.popularity - a.popularity);
+  const colorCountPopularityStats = [...colorCountStats]
+    .map(c => ({ ...c, popularity: totalColorGames ? c.games/totalColorGames : 0 }))
+    .sort((a,b) => b.popularity - a.popularity);
+
   // ---------- mulligans ----------
   const mullMap = {};
   games.forEach(g => {
@@ -1019,6 +1030,7 @@ async function renderAsync(gamesData, perfData){
         <div><h2>Color identity</h2><div class="section-desc">Win rate by color count, and by individual color (a WU deck counts toward both W and U).</div></div>
         <div class="idx">06 / COLORS</div>
       </div>
+      <div style="margin-bottom:14px;font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:.14em;font-weight:900;">Win rate</div>
       <div class="grid grid-2">
         <div class="panel" style="padding:22px 24px;">
           <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By color count</h3>
@@ -1034,6 +1046,25 @@ async function renderAsync(gamesData, perfData){
             <div class="hbar-label">${pipsHTML(c.id)} &nbsp;${COLOR_NAMES[c.id] || c.id}</div>
             <div class="hbar-track"><div class="hbar-fill" style="width:${c.winRate*100}%"></div></div>
             <div class="hbar-val">${pct(c.winRate)}</div>
+          </div>`).join('')}
+        </div>
+      </div>
+      <div style="margin:28px 0 14px;font-size:11px;color:var(--gold);text-transform:uppercase;letter-spacing:.14em;font-weight:900;">Popularity</div>
+      <div class="grid grid-2">
+        <div class="panel" style="padding:22px 24px;">
+          <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By color count</h3>
+          ${colorCountPopularityStats.map(c => `<div class="hbar-row">
+            <div class="hbar-label">${c.label}</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${c.popularity*100}%"></div></div>
+            <div class="hbar-val">${pct(c.popularity)}</div>
+          </div>`).join('')}
+        </div>
+        <div class="panel" style="padding:22px 24px;">
+          <h3 style="font-size:11px;color:var(--text-faint);margin-bottom:16px;font-weight:900;text-transform:uppercase;letter-spacing:.14em;">By individual color</h3>
+          ${colorPopularityStats.map(c => `<div class="hbar-row">
+            <div class="hbar-label">${pipsHTML(c.id)} &nbsp;${COLOR_NAMES[c.id] || c.id}</div>
+            <div class="hbar-track"><div class="hbar-fill" style="width:${c.popularity*100}%"></div></div>
+            <div class="hbar-val">${pct(c.popularity)}</div>
           </div>`).join('')}
         </div>
       </div>
